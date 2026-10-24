@@ -47,27 +47,41 @@ export const SHORE = [
 ];
 // the stretch of SHORE that is the bulkhead's street face (no water there: no seawall, no railing)
 export const FRONTAGE = { x0: 2, x1: 262 };
-// the Embarcadero's centreline (traced on z19 and z18: west of Pier 35 it bends toward Pier 39 and Jefferson Street;
-// along the bulkheads it runs 19.5 m off their street face, the middle of the 33 m cross-section measured at Pier 35:
-// the promenade 6 m, a bike lane 2 m, two lanes 7 m, the F-line's median 9 m with its two tracks 4.4 m apart, two lanes,
-// parking 2 m, the far sidewalk)
+// the Embarcadero's centreline: the middle of its median (the F-line's tracks, the palms south of Pier 31), fit to
+// OpenStreetMap's two carriageways (assets/near streets: the midpoints between them every 4 m, binned at 8 m, smoothed,
+// simplified at 0.5 m; scratchpad/pier/osm/embfit2.py) and checked on z19/z18 cross-sections (the median centred within
+// ~1 m from Pier 35 to the box's south-east end). West of Pier 39's east marina it is OSM's single centreline (The
+// Embarcadero, then Jefferson Street past x -500; the paved road sits ~2.5 m bayward of it there). At Pier 35 the median
+// is 31.5 m off the bulkhead's street face (36.5 m by Pier 33): the promenade ~17 m to the kerb, the waterside lanes and
+// bike lane, the median 9 m with its two tracks 4.4 m apart, two lanes, parking, the far sidewalk. (The first trace,
+// 2026-10-23, read the waterside lanes as the median: it ran 12-26 m bayward of the road from Pier 35 to Pier 29 and
+// 11 m city-ward at the south-east end; refit 2026-10-24.)
 export const EMB = {
-  line: [[-660, -26], [-560, -24], [-480, -20], [-400, -8], [-340, 16], [-300, 40], [-250, 54], [-194, 63], [-144, 85],
-    [-81, 119], [-19, 152.1], [100, 233.5], [262, 344.3], [300, 403], [338, 462], [363, 490], [382, 525], [417, 578],
-    [433, 602], [484, 678], [518, 735], [553, 812], [610, 904], [665, 995], [690, 1040]],
-  half: 13.5, lanes: [4.5, 11.5], median: 4.5, tracks: 2.2, walk: 5.0,        // half: the kerbs; the median's kerbs at 4.5; sidewalks 5 m and the promenade to the face
+  line: [[-700, -0.3], [-655.8, -4.5], [-536.1, -16.0], [-512.7, -16.4], [-474.9, -8.3], [-353.6, 22.9], [-215.3, 52.2],
+    [-199.3, 57.0], [-184.3, 63.9], [-142.1, 88.7], [-87.8, 121.7], [-33.2, 156.2], [78.2, 234.4], [148.1, 287.0],
+    [172.8, 307.1], [202.0, 335.0], [357.5, 494.7], [379.1, 518.2], [394.4, 537.3], [408.0, 557.9], [483.4, 678.8],
+    [700.7, 1031.6]],
+  half: 13.5, lanes: [4.5, 11.5], median: 4.5, tracks: 2.2, walk: 5.5,        // the full section (below): kerbs at 13.5, the median's at 4.5; sidewalks 5.5 m, the promenade to the water
+  // the cross-section along the road, by the centreline's x (read off z19 cross-sections every ~25 m, 1 m ticks; scratchpad/
+  // pier/osm/xprof.py): c the road's middle off the line (+ city-ward), hb and hc its bay and city kerbs from that middle,
+  // md the median's half-width (0: none; the F-line's tracks 2.2 m off the middle where there is one). By Pier 39 and west
+  // the road is ~13.7 m kerb to kerb with no median (its kerbs at -9.5 and +4.2 off the line, x -433..-95); it widens to the
+  // full section by the Kearny junction (x -80..-30); along lot 1 its city kerb is 10 m off the median's middle (the
+  // trees' strip, then the lot, x -30..75); from Bay Street on, the full section
+  profile: [[-700, -2.65, 6.85, 6.85, 0], [-80, -2.65, 6.85, 6.85, 0], [-30, 0, 13.5, 10, 4.5], [75, 0, 13.5, 10, 4.5], [110, 0, 13.5, 13.5, 4.5], [800, 0, 13.5, 13.5, 4.5]],
 };
-// the blocks behind Pier 35 and Pier 39 (traced on z19 at 3.2 px/m, +-2 m): surface parking (no buildings) and the
-// big buildings by footprint, with storeys read off their shadows and photo 37 (est.)
-export const LANDUSE = {
-  parking: [[-50, 180, 44, 240], [-210, 255, -90, 300]],
-  buildings: [
-    { r: [-290, 64, -200, 111], st: 4, kind: 'hotel' }, { r: [-267, 117, -200, 155], st: 3, kind: 'office' },
-    { poly: [[-190, 83], [-150, 98], [-95, 125], [-95, 150], [-190, 150]], st: 3, kind: 'garage' },
-    { r: [-200, 171, -94, 246], st: 2, kind: 'warehouse' }, { r: [-108, 160, -86, 175], st: 3, kind: 'office' },
-    { r: [-83, 170, -56, 211], st: 3, kind: 'office' }, { r: [-81, 211, -58, 233], st: 2, kind: 'round' },
-  ],
-};
+// the cross-section at a centreline point's x: { c, hb, hc, md, tk (the tracks' offset from c, 0 none), exB (the bay side's
+// bike lane inside its kerb), exC (the city side's parking lane) }; widths in metres from the road's middle
+export function embProfile(x) {
+  const K = EMB.profile; let i = 0; while (i < K.length - 2 && K[i + 1][0] < x) i++;
+  const a = K[i], b = K[i + 1], t = Math.max(0, Math.min(1, (x - a[0]) / (b[0] - a[0])));
+  const [c, hb, hc, md] = [1, 2, 3, 4].map(k => a[k] + (b[k] - a[k]) * t);
+  const ex = (h) => Math.max(0, Math.min(2, h - md - 7.0));
+  return { c, hb, hc, md, tk: md > 3.0 ? EMB.tracks : 0, exB: ex(hb), exC: ex(hc) };
+}
+// the city's buildings, streets and car parks come from data (near.js: DataSF's footprints and OSM, assets/near). The first
+// cut traced two car parks and seven buildings here and laid the rest on a 50-vara grid fitted on z18; against OSM's
+// centrelines that grid ran 5.4 deg off the real streets, a median 17 m (E-W) and 21.5 m (N-S) out, p90 44 m (2026-10-24)
 // parks and gardens (traced on z18, +-5 m): their ground is grass, paths and trees; no lots
 export const PARKS = {
   pioneer: [[-28, 600], [-5, 562], [40, 548], [92, 562], [128, 600], [142, 660], [128, 730], [100, 772], [55, 790], [10, 778], [-22, 740], [-36, 680]],   // Coit Tower's summit (Pioneer Park)
@@ -131,7 +145,3 @@ export const WEST = {
 };
 // ---- Telegraph Hill
 export const COIT = { at: [49.5, 704.0], h: 64.0, r: 5.6 };   // traced: the shaft's foot on z18 (the imagery leans its top 21 m NNE)
-// the city's street grid (North Beach's 50-vara survey): street centrelines read on z18 crops at 2-3 px/m (+-3 m): N-S
-// streets at x = -433 + 143.0 k (-433, -287, -147 read), E-W streets at z = 74.6 + 103.2 k (281, 389, 491, 593, 694, 795, 900
-// read); 19 m from building line to building line
-export const GRID = { px: 143.0, pz: 103.2, x0: -433.0, z0: 74.6, street: 19.0 };

@@ -1,6 +1,7 @@
 // liberty/src/water/events.js: the events on the water (rings: splashes, the guns' blast rings) and the boats' Kelvin
 // wakes, as GLSL for the sea's state pass (state.js): moved out of shade.js so the shading's program carries none of it.
 import { NRIP, NWAKE, NSEG } from './surface.js';
+import { FLOW_GLSL } from 'scene3d/flow.js';
 
 export const EVENTS_GLSL = /* glsl */`
 // events: rings and wakes -> slope (xy), the chop's calm factor (z: 1 none .. 0 flattened), a darkening (w)
@@ -117,51 +118,8 @@ vec4 wakesAt(vec2 p, float fp, out float cusp, out float wvar) {
   return o;
 }
 
-// the piles in the ebb (piles.js): foam caught against each one's upstream face, the turbulent strip behind it (foam
-// patches carried off at 0.85 U), the V of capillary ripples at the half-angle asin(0.23 / U) and the Karman street's
-// eddies as rings (one shed every 10 r / U s, alternate sides, 8.5 r apart): foam (returned) and drawn lines (line)
-uniform sampler2D uPileTex; uniform vec4 uPileBox;      // (x0, z0, width, depth); width 0: no pile in a current
-float pilesAt(vec2 p, vec2 cur, float fp, out float line) {
-  line = 0.0;
-  if (uPileBox.z <= 0.0) return 0.0;
-  vec2 u = (p - uPileBox.xy) / uPileBox.zw;
-  if (any(lessThan(u, vec2(0.0))) || any(greaterThan(u, vec2(1.0)))) return 0.0;
-  vec4 pl = texture(uPileTex, u);
-  if (pl.z <= 0.0) return 0.0;
-  float U = pl.w, r = pl.z;
-  vec2 ud = dot(cur, cur) > 1e-6 ? normalize(cur) : vec2(1.0, 0.0);
-  vec2 d = p - pl.xy;
-  float s = dot(d, ud), n = d.x * ud.y - d.y * ud.x, an = abs(n), rho = length(d);
-  float lw = max(fp, 0.005) * 1.2 + 0.015;                 // (a line: a pixel and a bit, in metres)
-  float vis = 1.0 - smoothstep(0.08, 0.25, fp);             // (where a pixel spans a quarter metre, the lines are gone)
-  // (the crescent the ebb piles against its face, and round to its shoulders)
-  float foam = (1.0 - smoothstep(r + 0.04, r + 0.16 + 0.06 * U, rho)) * smoothstep(0.5 * r, -0.4 * r, s);
-  float fade = 1.0 - smoothstep(1.5, 6.0, s);              // (the strip's streaks and swirls fade in 1.5-6 m: they ran 10 m, a carpet off a pile row)
-  if (s > 0.0) {
-    float w = r + 0.06 * s, sa = s - 0.85 * U * uTime;      // (each pile's own U: never t times a rate that varies)
-    // the turbulent strip as drawn: three broken streaks carried off down it (W6: lines, not texture), a few foam bits
-    // right behind the pile where the shear layers roll up
-    for (int j = -1; j <= 1; j++) {
-      float fj = float(j), on = step(0.05, vnoise(vec2(sa * 0.9 + fj * 3.1, fj * 1.7) + pl.xy));
-      line = max(line, (1.0 - smoothstep(0.0, lw, abs(n - fj * 0.5 * w))) * on * fade * vis * 0.9);
-    }
-    float bits = vnoise(vec2(sa * 2.6, n * 3.4) - pl.xy);
-    foam = max(foam, smoothstep(0.55, 0.7, bits) * smoothstep(w, w * 0.5, an) * (1.0 - smoothstep(0.5, 2.5, s)));
-    if (U > 0.26) {
-      float ta = tan(asin(min(0.23 / U, 0.99)));
-      line = max(line, (1.0 - smoothstep(0.0, lw, abs(an - r - s * ta))) * (1.0 - smoothstep(1.0, 4.0, s)) * vis * 0.9);
-    }
-    float Dk = 8.5 * r, ph = 0.85 * U * uTime / Dk + fract(pl.x * 0.37 + pl.y * 0.71);
-    float k = floor(s / Dk - fract(ph) + 0.5), sk = (k + fract(ph)) * Dk;
-    float side = mod(k + floor(ph), 2.0) < 0.5 ? 1.0 : -1.0;
-    vec2 c = vec2(sk, side * (r * 0.9 + 0.035 * sk));
-    vec2 dc = vec2(s, n) - c;
-    float rad = 0.35 * r + 0.025 * sk, de = length(dc);
-    // (a swirl's outer arc, not a ring: the half away from the strip's middle and its leading quarter)
-    float arc = smoothstep(-0.1, 0.35, (side * dc.y + 0.5 * dc.x) / max(de, 1e-3));
-    line = max(line, (1.0 - smoothstep(0.0, lw, abs(de - rad))) * arc * fade * vis * smoothstep(0.0, 0.5, sk) * 0.9);
-  }
-  return foam * (1.0 - smoothstep(0.15, 0.4, fp));
-}
-
-`.replace(/G_/g, '9.81');
+// the piles', the hull's and the barge's wakes in the ebb: the engine's flowWake (engine/scene3d/flow.js FLOW_GLSL,
+// appended below): current past obstacles at their Reynolds and Froude numbers. (Until round 8 the piles drew their own
+// here: three foam streaks 10 m long, the V's lines and the swirls' arcs, a dozen bright scratches a pile: the
+// integrator's tour T4 at 39 s)
+`.replace(/G_/g, '9.81') + FLOW_GLSL;

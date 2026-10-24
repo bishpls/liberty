@@ -21,22 +21,29 @@ const sub3 = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const nrm3 = a => { const l = Math.hypot(...a) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
 const cross3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 
-// a cowl ventilator on the deck at base: its mouth (radius Rm) centred H above the base, facing 'face' (horizontal)
+// a cowl ventilator on the deck at base: its mouth (radius Rm) centred H above the base, facing 'face' (horizontal).
+// One continuous duct (the trunk rising straight into a quarter bend of constant bore, its centreline radius 1.6x the
+// bore's, so the inside of the bend never folds), a collar at the joint, then the bell flaring to the mouth as a shell
+// with its inside (seen when you look into the mouth), the rolled lip, the dark throat where the bell meets the duct.
+// (The first cowls flared inside the bend: past the bend's radius its inner wall folded over itself, the folded faces
+// were culled and the cowls read as cut off: the director, 2026-10-24.)
 export function cowl(base, Rm, H, face) {
-  const f = nrm3([face[0], 0, face[2]]), r0 = Rm * 0.6, Rb = Rm * 1.05, up = [0, 1, 0];
+  const f = nrm3([face[0], 0, face[2]]), up = [0, 1, 0];
+  const r0 = Rm * 0.56, Rb = r0 * 1.6, Lb = Rm * 0.55;
   const steel = [], dark = [];
-  steel.push(lath([[r0 + 0.08, 0], [r0 + 0.08, 0.22], [r0 + 0.02, 0.24], [r0, 0.24]], 18).applyMatrix4(tr(...base)));         // the coaming
+  steel.push(lath([[r0 + 0.08, 0], [r0 + 0.08, 0.22], [r0 + 0.02, 0.24], [r0 - 0.005, 0.24]], 18).applyMatrix4(tr(...base)));    // the coaming
   const yb = Math.max(0.3, H - Rb);
-  steel.push(cyl(add3(base, up, 0.2), add3(base, up, yb), r0, r0, { sides: 18, caps: false }));
-  // the bend, the throat flaring toward the mouth
-  const pts = [];
+  const pts = [add3(base, up, 0.1)];
   for (let k = 0; k <= 10; k++) { const a = k / 10 * Math.PI / 2; pts.push(add3(add3(base, f, Rb * (1 - Math.cos(a))), up, yb + Rb * Math.sin(a))); }
-  const end = pts[pts.length - 1];
-  for (let k = 1; k <= 3; k++) pts.push(add3(end, f, 0.06 * k * Rm));
-  steel.push(tube(pts, u => r0 + (Rm * 0.93 - r0) * Math.pow(u, 1.6), { sides: 18, caps: false }));
-  const mouth = pts[pts.length - 1];
-  steel.push(ring(mouth, f, Rm * 0.95, Rm * 0.06, { seg: 22, sides: 6 }));
-  dark.push(disc(add3(mouth, f, -0.22 * Rm), f, Rm * 0.9, 18));
+  steel.push(tube(pts, r0, { sides: 16, caps: false }));
+  steel.push(lath([[r0 - 0.01, -0.045], [r0 + 0.022, -0.045], [r0 + 0.022, 0.045], [r0 - 0.01, 0.045]], 16).applyMatrix4(tr(...add3(base, up, yb))));   // the collar
+  const E = pts[pts.length - 1];
+  const t = 0.012, mid = r0 + (Rm - r0) * 0.38;
+  const bell = [[r0, 0], [r0 * 1.04, 0.15 * Lb], [mid, 0.5 * Lb], [Rm * 0.93, 0.85 * Lb], [Rm, Lb], [Rm - t, Lb], [Rm * 0.93 - t, 0.85 * Lb], [mid - t, 0.5 * Lb], [r0 * 1.04 - t, 0.15 * Lb], [r0 - t, 0.004]];
+  steel.push(lath(bell, 16, { hard: true }).applyMatrix4(along(E, f)));
+  const mouth = add3(E, f, Lb);
+  steel.push(ring(mouth, f, Rm - t / 2, Rm * 0.05, { seg: 18, sides: 5 }));
+  dark.push(disc(add3(E, f, 0.02), f, r0 - t, 16));
   return { steel, dark, mouth };
 }
 const mushroom = (p, r = 0.16) => lath([[r * 0.8, 0], [r * 0.8, 0.45], [r * 1.9, 0.48], [r * 2.0, 0.55], [r * 1.2, 0.68], [0, 0.7]], 14).applyMatrix4(tr(...p));
@@ -48,7 +55,7 @@ function flagGeo(h0, hd, hl, fd, fl, code, ph, nu = 6, nv = 3) {
     const u = i / nu, v = j / nv, p = add3(add3(h0, hd, v * hl), fd, u * fl);
     pos.push(...p); nrm.push(...n); uv.push(u, v); fl_.push(code); ph_.push(ph); fly.push(...fd);
   }
-  for (let j = 0; j < nv; j++) for (let i = 0; i < nu; i++) { const a = j * (nu + 1) + i, b = a + 1, c = a + nu + 1, d = c + 1; idx.push(a, c, b, b, c, d); }
+  for (let j = 0; j < nv; j++) for (let i = 0; i < nu; i++) { const a = j * (nu + 1) + i, b = a + 1, c = a + nu + 1, d = c + 1; idx.push(a, b, c, b, d, c); }
   const g = new T.BufferGeometry();
   g.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new T.Float32BufferAttribute(nrm, 3));
   g.setAttribute('uv', new T.Float32BufferAttribute(uv, 2)); g.setAttribute('aFlag', new T.Float32BufferAttribute(fl_, 1));
@@ -63,7 +70,7 @@ export function buildFittings(world, M, ctx, B, W, seat, F, rig, guns) {
   const R = rng(7331);
   const hk = (ship) => ship;
   // ---- cowls: by place (ship.md §7)
-  const addCowl = (base, Rm, H, face, where) => { const c = cowl(base, Rm, H, face); B.add(M.steel, c.steel, 'cowls'); B.add(M.black, c.dark, 'cowls'); out.cowls.push({ where, mouthDia: +(2 * Rm).toFixed(2), mouthAbl: +c.mouth[1].toFixed(2) }); };
+  const addCowl = (base, Rm, H, face, where) => { const c = cowl(base, Rm, H, face); B.add(M.steel, c.steel, 'cowls'); B.add(M.black, c.dark, 'cowls'); out.cowls.push({ where, mouthDia: +(2 * Rm).toFixed(2), mouthAbl: +c.mouth[1].toFixed(2), mouth: c.mouth, base, face }); };
   // forward of No. 1 (31-35 ft aft of the FP), mouths at ~53.7 ft ABL, facing forward
   { const z = zs(2.16 + 33 * FT); for (const sx of [-1, 1]) { const x = sx * 1.7, y = deckAt(x, z); addCowl([x, y, z], 0.42, 53.7 * FT - y, [0, 0, -1], 'forward of No. 1'); } }
   // the mast houses' tops: two big cowls each, the port one facing forward, the starboard aft (photos 25, 27); two small on the fore
@@ -208,6 +215,6 @@ export function buildFittings(world, M, ctx, B, W, seat, F, rig, guns) {
     }
   }
   if (flags.length) B.add(M.flag, flags, 'flags');
-  out.measures = { cowls: out.cowls.length, cowlList: out.cowls, flags: out.flags, dressFlags: total, wind: P.WATER.wind, source: 'ship.md §7: ~16-20 cowls' };
+  out.measures = { cowls: out.cowls.length, cowlList: out.cowls.map(c => ({ where: c.where, mouthDia: c.mouthDia, mouthAbl: c.mouthAbl })), flags: out.flags, dressFlags: total, wind: P.WATER.wind, source: 'ship.md §7: ~16-20 cowls' };
   return out;
 }

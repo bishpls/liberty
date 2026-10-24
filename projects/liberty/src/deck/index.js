@@ -6,7 +6,7 @@
 //   guns.js   the 5"/38, the 3"/50, the eight Oerlikons: geometry, the schedule, recoil, cases, muzzle(t)
 // ctx.mods.deck = { guns: { gun5: { muzzle(t), shots }, gun3, gun20: [...] }, masts, lights, stoppers, measures }
 import * as P from '../plan.js';
-import { SH, Bins, zs, seats, deckAt as deckAtS } from './ship.js';
+import { SH, Bins, zs, seats, deckAt as deckAtS, STATS, dropDegenerate } from './ship.js';
 import { deckMats } from './mats.js';
 import { buildGuns } from './guns.js';
 import { Wires } from './wires.js';
@@ -71,8 +71,9 @@ export async function build(world, ctx) {
   }
   // the wires: one draw (drawn at least a few pixels wide), the ropes another
   const SM = P.SHIP.matrix();
-  const wireMesh = W.geos.length ? world.mesh(merge(W.geos).applyMatrix4(SM), M.wire, { name: 'deck:wires' }) : null;
-  const ropeMesh = W.ropeGeos.length ? world.mesh(merge(W.ropeGeos).applyMatrix4(SM), M.rope, { name: 'deck:ropes' }) : null;
+  const mg = list => { const g = merge(list).applyMatrix4(SM); STATS.degenerate += dropDegenerate(g); return g; };
+  const wireMesh = W.geos.length ? world.mesh(mg(W.geos), M.wire, { name: 'deck:wires' }) : null;
+  const ropeMesh = W.ropeGeos.length ? world.mesh(mg(W.ropeGeos), M.rope, { name: 'deck:ropes' }) : null;
   for (const m of [wireMesh, ropeMesh]) if (m) { m.geometry.computeBoundingSphere(); m.geometry.computeBoundingBox(); }
   t = lap('flush', t);
   // stoppers: the masts and the topped booms as coarse proxies, so a beam aimed at the rig lands on it
@@ -94,10 +95,26 @@ export async function build(world, ctx) {
   const wireStats = W.list.concat(W.ropes).filter(w => w.cat).map(w => ({ name: w.name, kind: w.kind, H: w.H, w: w.w, span: +w.span.toFixed(2), sag: +w.sag.toFixed(3),
     // (the parabola's sag under a load per horizontal metre w sec(theta): a steep shroud carries more wire per metre of span)
     sagTheory: +(w.span * w.span * w.w * Math.hypot(1, (w.b[1] - w.a[1]) / Math.max(w.span, 1e-6)) / (8 * w.H)).toFixed(3), a: +(w.H / w.w).toFixed(1) }));
+  // faces whose winding disagrees with their normals (seen from outside, culled: a see-through wall), over every deck mesh
+  let inv = 0, ntri = 0;
+  for (const mesh of world.pipe.meshes.filter(q => q.userData.module === 'deck' && q.geometry && q.geometry.index)) {
+    const p = mesh.geometry.attributes.position.array, nn = mesh.geometry.attributes.normal.array, ix = mesh.geometry.index.array;
+    for (let k = 0; k < ix.length; k += 3) {
+      const a = ix[k] * 3, b = ix[k + 1] * 3, c = ix[k + 2] * 3;
+      const u = [p[c] - p[b], p[c + 1] - p[b + 1], p[c + 2] - p[b + 2]], v = [p[a] - p[b], p[a + 1] - p[b + 1], p[a + 2] - p[b + 2]];
+      const g = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+      const s = g[0] * (nn[a] + nn[b] + nn[c]) + g[1] * (nn[a + 1] + nn[b + 1] + nn[c + 1]) + g[2] * (nn[a + 2] + nn[b + 2] + nn[c + 2]);
+      if (Math.hypot(...g) > 1e-12) { ntri++; if (s < 0) inv++; }
+    }
+  }
   const measures = {
+    faces: { triangles: ntri, inverted: inv, share: +(inv / Math.max(1, ntri)).toFixed(4), tubeTris: STATS.tubeTris, cornersRounded: STATS.filleted, degenerateDropped: STATS.degenerate, note: 'before 2026-10-24 every tube() face was wound inward (the cowls\' ducts, davits, rails, wires, ropes)' },
     seats: seat.used, guns: G.measures, masts: rig.measures.masts, booms: rig.measures.booms, machinery: mach.measures, hatches: hat.measures, boats: boats.measures, fittings: fit.measures, gangway: gang.measures, lights: lit.measures,
     wires: { count: W.list.length + W.ropes.length, ends: att, catenaries: wireStats },
-    tris, trisTotal: Object.values(tris).reduce((a, b) => a + b, 0), buildMs: Math.round(performance.now() - t0), ms,
+    // drawn: every deck mesh's triangles as uploaded (instanced meshes by their instances); trisByPart counts the parts as
+    // they were gathered (a part merged into a fitting's measure geometry too can count twice there)
+    trisByPart: tris, trisTotal: world.pipe.meshes.filter(q => q.userData.module === 'deck' && q.geometry).reduce((a, q) => a + (q.geometry.index ? q.geometry.index.count : q.geometry.attributes.position.count) / 3 * (q.isInstancedMesh ? Math.max(1, q.count) : 1), 0),
+    buildMs: Math.round(performance.now() - t0), ms,
   };
   const gunOut = g => ({ muzzle: g.muzzle, shots: g.shots, pose: g.pose, mount: SH.toWorld(...g.mount), name: g.name || g.kind });
   const Wp = p => SH.toWorld(p[0], p[1], p[2]);
@@ -107,7 +124,7 @@ export async function build(world, ctx) {
   return {
     measures,
     guns: { gun5: gunOut(G.guns.gun5), gun3: gunOut(G.guns.gun3), gun20: G.guns.gun20.map(gunOut) },
-    masts, lights: lit.lights, stoppers,
+    masts, lights: lit.lights, stoppers, cowls: fit.cowls.map(c => ({ where: c.where, mouth: Wp(c.mouth), base: Wp(c.base), face: c.face })),
   };
 }
 
@@ -116,6 +133,7 @@ export async function build(world, ctx) {
 export function loops(LOOPS, ctx) {
   const name = new URLSearchParams(location.search).get('loop') || '';
   const [kind, seed, hour] = name.split('~');
+  if (kind === 'ventwander') return ventLoop(LOOPS, ctx, name, seed, hour);
   if (kind !== 'deckwander') return;
   const R = rng(+(seed || 1) * 7919 + 13), S = P.SHIP, d = ctx.mods.deck;
   const targets = () => {
@@ -138,3 +156,16 @@ export function loops(LOOPS, ctx) {
   LOOPS[name].len = views.length;
 }
 const LIBERTY_N = () => window.SCENE;
+
+// ventwander~SEED~HOUR: close views round every cowl vent (the director's find, 2026-10-24: the bends must seat on their
+// trunks): for each cowl, cameras 2-4 m off at a random bearing, from level to well above, looking at its bend
+function ventLoop(LOOPS, ctx, name, seed, hour) {
+  const R = rng(+(seed || 1) * 104729 + 7), cw = ctx.mods.deck.cowls, views = [];
+  for (const c of cw) for (let k = 0; k < 2; k++) {
+    const az = R() * Math.PI * 2, el = (-5 + R() * 70) * Math.PI / 180, d = 2.2 + R() * 2.2;
+    const at = [(c.base[0] + c.mouth[0]) / 2, c.mouth[1] - 0.3, (c.base[2] + c.mouth[2]) / 2];
+    views.push({ pos: [at[0] + Math.cos(az) * Math.cos(el) * d, at[1] + Math.sin(el) * d, at[2] + Math.sin(az) * Math.cos(el) * d], at, lens: 28, where: c.where });
+  }
+  LOOPS[name] = t => { const v = views[Math.round(t) % views.length]; placeCamera(LIBERTY_N().camera, v); frame(4, { hour: +(hour || 17) }); blit(`ventwander ${seed}#${Math.round(t)} · ${v.where}`); };
+  LOOPS[name].len = views.length;
+}

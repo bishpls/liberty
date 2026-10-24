@@ -35,9 +35,11 @@ async function loadBuildings(file) {
     let k = 0;
     for (let b = 0; b < L.n; b++) {
       const n = o.nv[b];
+      // (head.rel: the first vertex from its tile's corner, tile = (i + 64) * 128 + (j + 64) of head.tile metres)
+      const tx = head.rel ? (Math.floor(o.tile[b] / 128) - 64) * head.tile / head.q : 0, tz = head.rel ? ((o.tile[b] % 128) - 64) * head.tile / head.q : 0;
       let x = 0, z = 0;
       for (let v = 0; v < n; v++, k++) {
-        if (v === 0) { x = q[2 * k]; z = q[2 * k + 1]; } else { x += q[2 * k]; z += q[2 * k + 1]; }
+        if (v === 0) { x = tx + q[2 * k]; z = tz + q[2 * k + 1]; } else { x += q[2 * k]; z += q[2 * k + 1]; }
         verts[2 * k] = x * head.q; verts[2 * k + 1] = z * head.q;
       }
     }
@@ -52,7 +54,7 @@ async function loadBuildings(file) {
 // one tile's geometry at one level: walls as two rings (bottom and top, u continuous round the perimeter) and the roof
 // on the top ring; flat shading from the derivatives (no normals stored). Attributes: position, aU (m along the
 // walls), aB (building centre x, z; base y; height to the roof)
-function tileGeometry(L, ids, org) {
+function tileGeometry(L, ids, org, ground) {
   let nv = 0, ni = 0;
   for (const b of ids) { const n = L.nv[b]; nv += 2 * (n + 1); ni += 6 * n + 3 * (n - 2); }
   const pos = new Float32Array(nv * 3), au = new Float32Array(nv), ab = new Float32Array(nv * 4);
@@ -61,6 +63,10 @@ function tileGeometry(L, ids, org) {
   const contour = [], V2 = T.Vector2;
   for (const b of ids) {
     const n = L.nv[b], s = L.start[b], base = L.base[b] * 0.1 - 2.0, roof = L.roof[b] * 0.1, P = L.verts;
+    // (the walls go down into the drawn land: LiDAR's ground under a footprint and the 12-28 m terrain disagree by metres
+    // on the hills, and a wall must not stop above the slope; the windows keep the building's own base, aB)
+    let foot = base;
+    if (ground) for (let k = 0; k < n; k++) { const g = ground(P[2 * (s + k)], P[2 * (s + k) + 1]); if (g !== null && g - 1.0 < foot) foot = g - 1.0; }
     let cx = 0, cz = 0, A = 0;
     for (let k = 0; k < n; k++) {
       const x0 = P[2 * (s + k)], z0 = P[2 * (s + k) + 1], x1 = P[2 * (s + (k + 1) % n)], z1 = P[2 * (s + (k + 1) % n) + 1];
@@ -71,7 +77,7 @@ function tileGeometry(L, ids, org) {
     for (let k = 0; k <= n; k++) {
       const kk = k % n, x = P[2 * (s + kk)], z = P[2 * (s + kk) + 1];
       if (k > 0) { const kp = (k - 1) % n; u += Math.hypot(x - P[2 * (s + kp)], z - P[2 * (s + kp) + 1]); }
-      for (const [j, y] of [[0, base], [1, roof]]) {
+      for (const [j, y] of [[0, foot], [1, roof]]) {
         const vi = v0 + 2 * k + j;
         pos[vi * 3] = x - org[0]; pos[vi * 3 + 1] = y; pos[vi * 3 + 2] = z - org[1];
         au[vi] = u; ab[vi * 4] = cx; ab[vi * 4 + 1] = cz; ab[vi * 4 + 2] = base + 2.0; ab[vi * 4 + 3] = roof - base - 2.0;
@@ -187,7 +193,7 @@ void smain(inout Surface s, vec3 P, vec3 V) {
   farAir(s, P);
 }`;
 
-export async function buildCity(world, ctx, { file = 'far/sf_bldg.bin.gz', name = 'far city', lod = LOD } = {}) {
+export async function buildCity(world, ctx, { file = 'far/sf_bldg.bin.gz', name = 'far city', lod = LOD, ground = null } = {}) {
   const t0 = performance.now();
   const B = await loadBuildings(file);
   const tl = performance.now() - t0;
@@ -218,8 +224,9 @@ export async function buildCity(world, ctx, { file = 'far/sf_bldg.bin.gz', name 
     for (const g of groups.values()) tiles.push({ l, L, ...g, org: [(g.i + 0.5) * S, (g.j + 0.5) * S], mesh: null });
   });
   const make = t => {
-    const g = tileGeometry(t.L, t.ids, t.org);
+    const g = tileGeometry(t.L, t.ids, t.org, ground);
     const m = world.mesh(g, mats[t.l], { name: name + ':' + ['buildings', 'rows', 'blocks'][t.l], cast: false });
+    m.userData.module = 'far';        // (level 0's tiles are made in a frame, after the build: world.current is gone)
     m.position.set(t.org[0], 0, t.org[1]); m.updateMatrixWorld(true);
     t.mesh = m; t.tris = g.index.count / 3;
     return m;

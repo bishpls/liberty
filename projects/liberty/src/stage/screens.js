@@ -85,6 +85,31 @@ function standbyCard() {
   const tex = new T.CanvasTexture(cv); tex.colorSpace = T.NoColorSpace;
   return tex;
 }
+// the same card composed for an IMAG face (portrait, 2:3, as the face): the ring and the star, then her name in two lines
+// ('SS JEREMIAH' over "O'BRIEN") and her year, each line sized to sit inside a 10 % margin. (The faces showed the wall's
+// card through the wall's mapping, its middle third: 'EREMIAH O'B', cut at both sides; the director, exploring the
+// published site, 2026-10-24: 'are the banners like this actually cut off in real life?')
+export const CARD_P = { w: 512, h: 768, margin: 0.1 };
+export function portraitCard() {
+  const W = CARD_P.w, H = CARD_P.h, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const c = cv.getContext('2d'), g = c.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#0c1630'); g.addColorStop(1, '#060b18'); c.fillStyle = g; c.fillRect(0, 0, W, H);
+  const cx = W / 2, cy = H * 0.32;
+  c.strokeStyle = '#c9a24a'; c.lineWidth = 6; c.beginPath(); c.arc(cx, cy, W * 0.24, 0, Math.PI * 2); c.stroke();
+  c.fillStyle = '#e9e3d4'; c.beginPath();
+  for (let i = 0; i < 10; i++) { const r = (i % 2 ? 0.065 : 0.16) * W, a = -Math.PI / 2 + i * Math.PI / 5; c.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r); }
+  c.closePath(); c.fill();
+  c.fillStyle = '#c9a24a'; c.fillRect(W * 0.2, H * 0.6, W * 0.6, 4);
+  c.fillStyle = '#e9e3d4'; c.textAlign = 'center'; c.textBaseline = 'alphabetic';
+  // each line at its size, shrunk until it fits the margin (the measure: CARD_P.fit, read back by measure tools)
+  const fit = (txt, px, bold) => { let f = px; do { c.font = `${bold ? 'bold ' : ''}${f}px "Helvetica Neue", Helvetica, Arial, sans-serif`; } while (c.measureText(txt).width > W * (1 - 2 * CARD_P.margin) && --f > 8); return { txt, px: f, w: Math.round(c.measureText(txt).width) }; };
+  CARD_P.fit = [];
+  for (const [txt, px, bold, y] of [['SS JEREMIAH', 64, true, 0.70], ["O'BRIEN", 64, true, 0.79], ['1943', 40, false, 0.87]]) {
+    const r = fit(txt, px, bold); c.fillText(txt, W / 2, H * y); CARD_P.fit.push(r);
+  }
+  const tex = new T.CanvasTexture(cv); tex.colorSpace = T.NoColorSpace;
+  return tex;
+}
 
 export function buildScreens(world, L, cues, M) {
   const led = L.led;
@@ -109,11 +134,19 @@ export function buildScreens(world, L, cues, M) {
   world.mesh(face.geometry(), wallMat, { name: 'led wall face' });
   // the IMAG screens: the same content (until the film's cameras feed them the band), tipped toward the apron. Their
   // pattern is drawn in their own frame: the material maps P onto the wall's rectangle through uImag
-  const imagMat = glowMat(world, 'imag face', { uniforms: Object.assign({}, U, { uImag: { value: Array.from({ length: 2 }, () => new T.Vector4()) } }), glsl: WALL_GLSL + 'uniform vec4 uImag[2];',
+  const qv = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams('');
+  const imagMat = glowMat(world, 'imag face', { uniforms: Object.assign({}, U, { uImag: { value: Array.from({ length: 2 }, () => new T.Vector4()) },
+      uCardP: { value: portraitCard() }, uCardPOn: { value: qv.get('imagcard') === 'v0' ? 0 : 1 } }),
+    glsl: WALL_GLSL + 'uniform vec4 uImag[2]; uniform sampler2D uCardP; uniform float uCardPOn;',
     body: `int k = sd < 0.5 ? 0 : 1; vec4 im = uImag[k];
-           // the screen's own (z, y) mapped onto the wall's rectangle (its middle third, as an IMAG feed crops)
+           // the screen's own (z, y) mapped onto the wall's rectangle (its middle third, as an IMAG feed crops: the show's
+           // abstract content); the standby card is the face's own, composed for its aspect (portraitCard)
            vec3 Q = vec3(P.x, uRect.z + (P.y - im.y) / im.w * (uRect.w - uRect.z), (uRect.x + uRect.y) / 2.0 + (P.z - im.x) / im.z * (uRect.w - uRect.z) * 0.67);
-           float pix; vec3 c = wallAt(Q, pix); s.albedo = vec3(0.015); s.emissive = c * pix * ${GAIN.toFixed(3)} * uState3.z;` });
+           float pix; vec3 c = wallAt(Q, pix);
+           vec2 fuv = vec2(0.5 - (P.z - im.x) / im.z, (P.y - im.y) / im.w);
+           vec3 cardP = pow(texture2D(uCardP, clamp(fuv, 0.0, 1.0)).rgb, vec3(2.2)) * 0.55;
+           c = mix(c, cardP, uCard * uCardPOn);
+           s.albedo = vec3(0.015); s.emissive = c * pix * ${GAIN.toFixed(3)} * uState3.z;` });
   const iface = new Geo();
   L.imag.forEach((im, k) => {
     const tilt = im.tilt * Math.PI / 180, n = [Math.cos(tilt), Math.sin(tilt), 0], up = [-Math.sin(tilt), Math.cos(tilt), 0];

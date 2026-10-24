@@ -22,7 +22,7 @@ export class Wires {
   // a wire along a given path (a runner along a boom, a rope round a bitt): no catenary
   path(pts, o) {
     const r = o.r || 0.01, tone = o.tone || 0;
-    const g = tube(pts, r, { sides: o.sides || (r > 0.02 ? 8 : 5), caps: true, seed: o.seed || 0.5 });
+    const g = tube(pts, r, { sides: o.sides || (r > 0.02 ? 8 : r >= 0.01 ? 5 : 4), caps: true, seed: o.seed || 0.5 });     // (wires under 1 cm: a square section, drawn 1.6 px wide anyway)
     const nv = g.attributes.position.count;
     g.setAttribute('aR', new T.Float32BufferAttribute(new Float32Array(nv).fill(r), 1));
     g.setAttribute('aTone', new T.Float32BufferAttribute(new Float32Array(nv).fill(tone), 1));

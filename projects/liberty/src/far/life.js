@@ -61,7 +61,7 @@ export function buildFarLife(world, ctx, { lights }) {
     G.push(box([x, 6, z], [s.L, 14, s.B], { rotY: rot }));
     const ah = [x - u[0] * s.L * 0.38, z - u[1] * s.L * 0.38];
     G.push(box([ah[0], 26, ah[1]], [22, 26, s.B * 0.9], { rotY: rot }));
-    if (s.name.startsWith('container')) for (let k = -4; k <= 3; k++) G.push(box([x + u[0] * k * 30, 20, z + u[1] * k * 30], [26, 12, s.B * 0.95], { rotY: rot }));
+    if (s.name.startsWith('container')) for (let k = -4; k <= 3; k++) G.push(box([x + u[0] * k * 30, 19, z + u[1] * k * 30], [26, 12, s.B * 0.95], { rotY: rot }));     // (on the deck at 13 m)
     L.fixed.add(x + u[0] * s.L * 0.48, 22, z + u[1] * s.L * 0.48, LIGHT_COL.white, 2.0, { size: 1.0, minPx: 1.6, on: 0.1 });
     L.fixed.add(x - u[0] * s.L * 0.48, 16, z - u[1] * s.L * 0.48, LIGHT_COL.white, 1.8, { size: 1.0, minPx: 1.5, on: 0.1 });
     for (let k = 0; k < 6; k++) { const f = -0.4 + k * 0.16; L.fixed.add(x + u[0] * s.L * f, 15, z + u[1] * s.L * f, LIGHT_COL.sodium, 1.2, { size: 1.0, minPx: 1.3, on: 0.12 }); }

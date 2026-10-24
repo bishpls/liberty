@@ -65,7 +65,7 @@ function inPoly(px, pz, poly) {
 // trees: the parks filled (cypress and eucalyptus on Telegraph Hill: tall, dense), street trees on the grid's
 // sidewalks, the Embarcadero's far sidewalk's row; palms on the Embarcadero's median (photo 07: in front of the
 // bulkheads) and its promenade
-export function buildTrees(world, landAt, out, { avoid = [] } = {}) {
+export function buildTrees(world, landAt, out, { avoid = [], blocked = null } = {}) {
   const TM = treeMats(world);
   const r = rng(4401);
   // two levels: the same lumps as icosahedra of detail 1 (80 faces a lump) near the camera, detail 0 (20) past 420 m
@@ -86,6 +86,7 @@ export function buildTrees(world, landAt, out, { avoid = [] } = {}) {
       const px = x + (r() - 0.5) * step * 0.8, pz = z + (r() - 0.5) * step * 0.8;
       if (!inPoly(px, pz, poly)) continue;
       if (avoid.some(([ax, az, ar]) => Math.hypot(px - ax, pz - az) < ar)) continue;
+      if (blocked && blocked(px, pz)) continue;                     // (the buildings and the streets: near.js's plan)
       if (!hill && r() < 0.45) continue;                          // the flat parks: lawns with trees round them
       const h = hill ? 11 + r() * 9 : 7 + r() * 5;
       add(px, pz, h, h * (0.55 + 0.25 * r()), Math.floor(r() * 3));

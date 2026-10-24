@@ -52,12 +52,18 @@ export async function build(world, ctx) {
   const t0 = performance.now();
   const D = await loadAll();
   const land = await buildLand(world, ctx, D);
-  const city = await buildCity(world, ctx);
-  const osm = await buildCity(world, ctx, { file: 'far/osm_bldg.bin.gz', name: 'far buildings', lod: { d1: 1e9, d2: 2e9, band: 1 } });
+  const inHole = (x, z) => x > HOLE.x0 && x < HOLE.x1 && z > HOLE.z0 && z < HOLE.z1;
+  const landAt = (x, z) => (inHole(x, z) ? null : land.heightAt(x, z));     // (null on B4's ground mesh)
+  const city = await buildCity(world, ctx, { ground: landAt });
+  const osm = await buildCity(world, ctx, { file: 'far/osm_bldg.bin.gz', name: 'far buildings', lod: { d1: 1e9, d2: 2e9, band: 1 }, ground: landAt });
   const lights = makeLights(world);
   const bridges = buildBridges(world, ctx, D, lights);
-  const ground = (x, z) => D.near.at(x, z) ?? D.mid.at(x, z) ?? D.far.at(x, z) ?? 0;
+  // (the landmarks stand on the drawn land: the terrain's own heights, its shore and waterfront rules and Alcatraz's 3 m grid)
+  const ground = land.heightAt;
   const marks = await buildLandmarks(world, ctx, { facade: osm.mats[0], lights, towers: city.towers(90), ground });
+  // the far land as ground for the assembly check (its shader displaces the terrain, so the check can't read it from
+  // triangles): everywhere but B4's ground mesh (HOLE), where the pier module's ground holds
+  world.relate('ground', { name: 'far land', heightAt: landAt, why: 'the far terrain (CDLOD, displaced in its shader)' });
   const life = buildFarLife(world, ctx, { lights });
   lights.flush();
   const avoid = [[BAY.rincon, [3700, 40], 45], [BAY.east.W2, BAY.east.end, 55], [GG.S1, GG.N1, 45]];

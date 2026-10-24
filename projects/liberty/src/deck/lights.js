@@ -31,7 +31,7 @@ export function buildLights(world, M, ctx, B, W, seat, rig, extra = {}) {
   };
   // a lantern: an all-round lens in a brass-capped housing (anchor, stern, range, NUC, Morse)
   const lantern = (p, lit, mat) => {
-    B.add(M.black, mergeG([lath([[0, 0], [0.13, 0], [0.13, 0.04], [0.09, 0.05]], 12).applyMatrix4(tr(...p)), lath([[0.09, 0.33], [0.14, 0.34], [0.12, 0.42], [0.04, 0.46], [0, 0.48]], 12).applyMatrix4(tr(...p))]), 'lamps');
+    B.add(M.black, mergeG([lath([[0, 0], [0.13, 0], [0.13, 0.04], [0.1, 0.05], [0, 0.05]], 12).applyMatrix4(tr(...p)), lath([[0, 0.33], [0.14, 0.33], [0.14, 0.34], [0.12, 0.42], [0.04, 0.46], [0, 0.48]], 12).applyMatrix4(tr(...p))]), 'lamps');     // (closed: no slit to see into)
     B.add(lit ? mat : M.lampOff, lath([[0.1, 0.05], [0.115, 0.12], [0.115, 0.26], [0.1, 0.33]], 14, { hard: false }).applyMatrix4(tr(...p)), 'lamps');
   };
 

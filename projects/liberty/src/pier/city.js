@@ -1,33 +1,27 @@
 // liberty/src/pier/city.js: the city inside the near box (B4): North Beach, the waterfront's blocks and Telegraph Hill's
-// houses, on the street grid measured on z18 (site.js GRID: 50-vara blocks, 146.7 x 105.4 m on centre, 21 m streets).
-// Lots follow San Francisco's 25 ft (7.62 m) frontage; buildings stand at the street line (no setback), 2-4 storeys on
-// the hill (Telegraph Hill's 40 ft limit), 3-6 by the waterfront, pastel stucco and painted wood (photos 12, 37).
-// Windows are the facade shader's (a storey 3.2 m, a bay 2.4 m): crisp emissive rectangles at night (style K3), each
-// lit or dark by its own hash, a share that falls through the evening; no halo. Roofs flat with parapets (most of SF),
-// some pitched; a few rooftop boxes (stair and lift housings, tanks).
+// houses, every building from DataSF's footprints with their 2010 LiDAR heights, the streets' furniture on OSM's streets
+// (near.js's plan: assets/near, tools/near_data.py). Pastel stucco and painted wood (photos 12, 37); windows are the
+// facade shader's (a storey 3.1-3.4 m, a bay 2.6-3.5 m): crisp emissive rectangles at night (style K3), each lit or dark
+// by its own hash, a share that falls through the evening; no halo. Flat roofs with a cornice band (most of SF), a gable
+// where the LiDAR's peak stands well over its median on a house, a rooftop box where it does on a flat roof; canted bay
+// windows on the houses' street faces; the garages' open decks with cars on the roof. Parked cars in the car parks'
+// stalls (2.6 x 5.5 m, 7 m aisles) and parallel in the streets' parking lanes, checked every build (near.js checkCars);
+// the street lights (cobra heads); street trees on the sidewalks.
 import { Bins } from 'scene3d/kit/arch/kit.js';
-import { rng, hash2 } from 'scene3d/util.js';
-import { GRID, PARKS, COIT, LANDUSE } from './site.js';
+import { hash2 } from 'scene3d/util.js';
 import { CITY_LAMP } from './land.js';
 import { pierMat } from './mats.js';
-import { box, merge, seedAttr, cylinder, beam } from './geo.js';
+import { box, merge, cylinder, beam, raw } from './geo.js';
 import { lin } from 'scene3d/util.js';
-import * as P from '../plan.js';
+import { CAR, STALL, checkCars, hash2k, onLand, embClear, inPoly } from './near.js';
 
 const T = window.THREE;
-const NEAR = P.WORLD.near;
 
 // facade colours (sampled on photo 12's houses: #d3d0c7 cream, and the hill's pastels; photo 37), sRGB
 const PASTEL = ['#d9d2c3', '#e3dccb', '#cfc8b8', '#d8c9a8', '#c9b9a0', '#e0d0b8', '#bfc7c9', '#c8d1d0', '#d6bfb3', '#cdb6a6', '#eae5d8', '#b8b5ad', '#d5cfa9', '#a9b4b6'];
-
-function inPoly(px, pz, poly) {
-  let ins = false;
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const [xi, zi] = poly[i], [xj, zj] = poly[j];
-    if ((zi > pz) !== (zj > pz) && px < (xj - xi) * (pz - zi) / (zj - zi) + xi) ins = !ins;
-  }
-  return ins;
-}
+// a building's seed for the facade shader: its wall's height above its base (decimetres) and its own fraction, negative
+// for a garage
+const packSeed = (topH, frac, garage) => (garage ? -1 : 1) * (Math.max(1, Math.round(topH * 10)) + Math.min(0.999, Math.max(0.001, frac))) / 10000;
 
 export function cityMats(world) {
   const pal = PASTEL.map(c => lin(c));
@@ -42,13 +36,24 @@ export function cityMats(world) {
     glsl: /* glsl */`${decl} uniform vec3 uRoof, uRoofB, uGlass, uWarm, uCool;
       vec3 pastel(float h) { int k = int(floor(h * ${pal.length}.0)); ${pick} return uP0; }`,
     body: /* glsl */`
-      // aSeed carries the building: its hue (fract * 14), its window style, its base height (the uv's v is metres up)
-      float b = sd;
+      // aSeed packs the building (city.js packSeed): (its wall's height above its base in decimetres + its own random
+      // fraction) / 10000, negative for a garage; the uv's u is metres along the wall, v metres above the base
+      float sa = abs(sd), b = fract(sa * 10000.0), topH = floor(sa * 10000.0 + 1e-3) * 0.1, garage = step(sd, 0.0);
       if (s.N.y > 0.6) {
-        // roofs: tar or a pale membrane, with the parapet's shadow line
+        // roofs: tar or a pale membrane; a garage's deck is concrete
         vec3 r = hash11(b * 97.0) < 0.55 ? uRoof : uRoofB;
+        r = mix(r, vec3(0.26, 0.255, 0.245), garage);
         s.albedo = r * (0.9 + 0.1 * step(0.0, vnoise(P.xz * 0.4)));
         s.rough = 0.9; return;
+      }
+      if (garage > 0.5) {
+        // a garage's open decks: a 3 m level, the slab and spandrel 1.1 m (pale concrete), the opening 1.9 m (its dark
+        // inside; at night its tubes, cool and dim)
+        float lv = fract(uv.y / 3.0), open = step(0.37, lv) * step(0.6, uv.y) * step(uv.y, topH - 0.9);
+        vec3 conc = vec3(0.5, 0.49, 0.46) * (0.93 + 0.07 * step(0.5, fract(uv.x / 9.0)));
+        s.albedo = mix(conc, vec3(0.035, 0.037, 0.04), open); s.rough = 0.9;
+        s.emissive += uCool * open * 0.22 * smoothstep(0.1, 0.8, uNight) * step(0.3, fract(uv.x / 2.4));
+        return;
       }
       vec3 wall = pastel(fract(b * 7.31));
       float h = uv.y, u = uv.x;
@@ -59,15 +64,19 @@ export function cityMats(world) {
       float bx = floor(u / bayW), fx = fract(u / bayW);
       float ww = style < 0.5 ? 0.36 : (style < 1.5 ? 0.22 : 0.56);
       float wx = style < 1.5 && style > 0.5 ? min(abs(fx - 0.3), abs(fx - 0.7)) : abs(fx - 0.5);
-      float win = step(wx, ww * 0.5) * step(0.3, fy) * step(fy, 0.84) * step(0.6, h);
+      float win = step(wx, ww * 0.5) * step(0.3, fy) * step(fy, 0.84) * step(0.6, h) * step(0.8, topH - h);
       float frame = win * (1.0 - step(wx, ww * 0.5 - 0.05) * step(0.33, fy) * step(fy, 0.81));
       // the ground storey of a commercial building: a shop's wide glazing under a band
       float shop = step(0.62, hash11(b * 7.0)) * (1.0 - step(stH, h));
       win = mix(win, step(0.08, fx) * step(fx, 0.92) * step(0.08, fy) * step(fy, 0.8), shop);
       vec3 trim = mix(vec3(0.92, 0.9, 0.86), wall * 0.72, step(0.5, hash11(b * 3.0)));
       vec3 c = wall;
-      // the cornice: a trim band in the top 0.5 m of every facade (uv.z unknown: by the building's height, aSeed's frac)
+      // the plinth (the bottom 0.45 m, darker) and the cornice: a trim band in the top 0.5 m of every facade, a shadow
+      // line under it (the line that draws every SF facade's edge)
       c *= 1.0 - 0.16 * (1.0 - step(0.45, h));
+      float ft = topH - h;
+      c = mix(c, mix(vec3(0.92, 0.9, 0.86), wall * 0.72, step(0.5, hash11(b * 3.0))), (1.0 - step(0.5, ft)) * step(-0.01, ft));
+      c *= 1.0 - 0.3 * step(0.5, ft) * (1.0 - step(0.62, ft));
       vec3 g = mix(uGlass, vec3(0.45, 0.55, 0.62), 0.45 + 0.3 * hash12(vec2(bx, fl) + b * 13.0)) * (1.0 - 0.6 * uNight);
       // curtains drawn in some windows by day: a pale fill
       g = mix(g, vec3(0.78, 0.74, 0.66), step(0.75, hash12(vec2(fl, bx) + b * 3.0)) * (1.0 - uNight));
@@ -83,45 +92,86 @@ export function cityMats(world) {
       s.emissive += lc * on * dim * 1.35;
     `,
   });
-  const trim = pierMat(world, { name: 'city trim', lamps: false, uniforms: { uC: { value: new T.Vector3(...lin('#e4ded2')) } }, glsl: 'uniform vec3 uC;', body: 's.albedo = uC * (0.85 + 0.15 * fract(sd * 17.0)); s.rough = 0.85;' });
+  const trim = pierMat(world, { name: 'city trim', lamps: false, uniforms: { uC: { value: new T.Vector3(...lin('#e4ded2')) } }, glsl: 'uniform vec3 uC;', body: 's.albedo = uC * (0.85 + 0.15 * fract(fract(abs(sd) * 10000.0) * 17.0)); s.rough = 0.85;' });
   const roof = pierMat(world, { name: 'city pitched roofs', lamps: false, uniforms: { uA: { value: new T.Vector3(...lin('#6d6a66')) }, uB: { value: new T.Vector3(...lin('#8e4f3a')) } }, glsl: 'uniform vec3 uA, uB;',
-    body: 'vec3 c = mix(uA, uB, step(0.65, fract(sd * 23.0))); c *= 1.0 - 0.12 * step(0.5, fract(uv.x * 2.2 + uv.y * 0.0)); s.albedo = c; s.rough = 0.8;' });
-  const cars = pierMat(world, { name: 'parked cars', lamps: false, uniforms: {}, glsl: '',
-    body: 'vec3 k = vec3(hash12(floor(P.xz / 2.6) + 1.0), hash12(floor(P.xz / 2.6) + 2.0), hash12(floor(P.xz / 2.6) + 3.0)); s.albedo = mix(vec3(0.05), mix(vec3(0.7), k * 0.6, step(0.5, k.x)), step(0.25, k.y)); s.rough = 0.35; s.spec = 0.6;' });
+    body: 'vec3 c = mix(uA, uB, step(0.65, fract(fract(abs(sd) * 10000.0) * 23.0))); c *= 1.0 - 0.12 * step(0.5, fract(uv.x * 2.2 + uv.y * 0.0)); s.albedo = c; s.rough = 0.8;' });
+  // parked cars: one colour a car (its instance's seed, aSeed per instance), from the US fleet's shares (white 25 %,
+  // black 20 %, grey 18 %, silver 12 %, blue 10 %, red 8 %, other 7 %); dark glass above the waist (the cabin's sides)
+  const cars = pierMat(world, { name: 'parked cars', lamps: false, uniforms: {}, glsl: /* glsl */`
+      vec3 carPaint(float h) {
+        if (h < 0.25) return vec3(0.78, 0.78, 0.76); if (h < 0.45) return vec3(0.03, 0.03, 0.035); if (h < 0.63) return vec3(0.16, 0.165, 0.17);
+        if (h < 0.75) return vec3(0.45, 0.46, 0.47); if (h < 0.85) return vec3(0.05, 0.12, 0.3); if (h < 0.93) return vec3(0.42, 0.04, 0.04);
+        return vec3(0.35, 0.3, 0.2); }`,
+    // (the car's geometry carries its own (z, y) in the uv: the wheels 1.4 m fore and aft below 0.62 m, the sills below
+    // 0.27 m, glass round the cabin)
+    body: 'vec3 c = carPaint(fract(sd * 7.13)); float side = 1.0 - step(0.5, abs(s.N.y)); float wz = min(abs(uv.x - 1.4), abs(uv.x + 1.4)); float wheel = (1.0 - step(0.62, uv.y)) * (1.0 - step(0.34, wz)) * step(0.5, abs(s.N.x)); c = mix(c, vec3(0.02), side * max(wheel, 1.0 - step(0.27, uv.y))); c = mix(c, vec3(0.045, 0.055, 0.065), side * step(1.06, uv.y) * 0.9); s.albedo = c; s.rough = 0.35; s.spec = 0.6;' });
   const pole = pierMat(world, { name: 'city poles', lamps: false, uniforms: { uC: { value: new T.Vector3(...lin('#5b5f61')) } }, glsl: 'uniform vec3 uC;', body: 's.albedo = uC; s.rough = 0.6; s.spec = 0.2;' });
   const head = pierMat(world, { name: 'city lamp heads', lamps: false, lines: 0, uniforms: { uC: { value: new T.Vector3(...lin('#ffd2a0')) } }, glsl: 'uniform vec3 uC;', body: 's.albedo = uC * 0.6; s.emissive = uC * 4.0 * smoothstep(0.15, 0.55, uNight);' });
   return { facade, trim, roof, cars, pole, head };
 }
 
-// an extruded footprint whose walls carry uv (metres along, metres above 'base') and a roof cap
-function prismUV(poly, y0, y1, seed, base) {
+// a footprint's walls (outer ring facing out, holes facing in: a courtyard's walls) from y0 to y1, their uv metres along
+// the ring and above 'base'; and its roof cap (holes cut) at y1
+function extrude(outer, holes, y0, y1, seed, base, cap = true, flip = false) {
   const pos = [], nrm = [], uv = [], idx = [];
-  let A = 0; for (let i = 0; i < poly.length; i++) { const a = poly[i], b = poly[(i + 1) % poly.length]; A += a[0] * b[1] - b[0] * a[1]; }
-  const sg = A > 0 ? -1 : 1; let acc = 0;
-  for (let i = 0; i < poly.length; i++) {
-    const a = poly[i], b = poly[(i + 1) % poly.length], L = Math.hypot(b[0] - a[0], b[1] - a[1]);
-    const n = [sg * (b[1] - a[1]) / L, 0, -sg * (b[0] - a[0]) / L], k = pos.length / 3;
-    pos.push(a[0], y0, a[1], b[0], y0, b[1], b[0], y1, b[1], a[0], y1, a[1]);
-    for (let j = 0; j < 4; j++) nrm.push(...n);
-    uv.push(acc, y0 - base, acc + L, y0 - base, acc + L, y1 - base, acc, y1 - base);
-    // (wind so the face looks along n)
-    const e1 = [b[0] - a[0], 0, b[1] - a[1]], up = [0, 1, 0], c = [e1[1] * up[2] - e1[2] * up[1], e1[2] * up[0] - e1[0] * up[2], e1[0] * up[1] - e1[1] * up[0]];
-    if (c[0] * n[0] + c[2] * n[2] > 0) idx.push(k, k + 1, k + 2, k, k + 2, k + 3); else idx.push(k, k + 2, k + 1, k, k + 3, k + 2);
-    acc += L;
+  const ring = (poly, outward) => {
+    let A = 0; for (let i = 0; i < poly.length; i++) { const a = poly[i], b = poly[(i + 1) % poly.length]; A += a[0] * b[1] - b[0] * a[1]; }
+    const sg = (A > 0 ? -1 : 1) * (outward ? 1 : -1); let acc = 0;
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i], b = poly[(i + 1) % poly.length], L = Math.hypot(b[0] - a[0], b[1] - a[1]); if (L < 1e-3) continue;
+      const n = [sg * (b[1] - a[1]) / L, 0, -sg * (b[0] - a[0]) / L], k = pos.length / 3;
+      pos.push(a[0], y0, a[1], b[0], y0, b[1], b[0], y1, b[1], a[0], y1, a[1]);
+      for (let j = 0; j < 4; j++) nrm.push(...n);
+      uv.push(acc, y0 - base, acc + L, y0 - base, acc + L, y1 - base, acc, y1 - base);
+      // (wind so the face looks along n: the triangle (a, b, b-top) faces (b - a) x up)
+      const cx = -(b[1] - a[1]), cz = b[0] - a[0];
+      if (cx * n[0] + cz * n[2] > 0) idx.push(k, k + 1, k + 2, k, k + 2, k + 3); else idx.push(k, k + 2, k + 1, k, k + 3, k + 2);
+      acc += L;
+    }
+  };
+  ring(outer, !flip); for (const h of holes) ring(h, flip);
+  const parts = [raw(pos, nrm, uv, idx, seed)];
+  if (cap) {
+    const shape = new T.Shape(outer.map(([x, z]) => new T.Vector2(x, -z)));
+    for (const h of holes) shape.holes.push(new T.Path(h.map(([x, z]) => new T.Vector2(x, -z))));
+    const g = new T.ShapeGeometry(shape); g.rotateX(-Math.PI / 2); g.translate(0, y1, 0);
+    g.setAttribute('aSeed', new T.Float32BufferAttribute(new Float32Array(g.attributes.position.count).fill(seed), 1));
+    parts.push(g);
   }
-  const g = new T.BufferGeometry();
-  g.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new T.Float32BufferAttribute(nrm, 3));
-  g.setAttribute('uv', new T.Float32BufferAttribute(uv, 2)); g.setAttribute('aSeed', new T.Float32BufferAttribute(new Float32Array(pos.length / 3).fill(seed), 1));
-  g.setIndex(idx);
-  const shape = new T.Shape(poly.map(([x, z]) => new T.Vector2(x, -z)));
-  const cap = new T.ShapeGeometry(shape); cap.rotateX(-Math.PI / 2); cap.translate(0, y1, 0);
-  cap.setAttribute('aSeed', new T.Float32BufferAttribute(new Float32Array(cap.attributes.position.count).fill(seed), 1));
-  return merge([g, cap.index ? cap : cap]);
+  return merge(parts);
+}
+// a car: the body and the cabin, five faces each (no floor): 20 triangles; the uv its own (z, y) (the shader's wheels, sills
+// and glass); its long axis along +z
+function carGeo() {
+  const pos = [], nrm = [], uv = [], idx = [];
+  const cube = (cx, cy, cz, sx, sy, sz) => {
+    const x0 = cx - sx / 2, x1 = cx + sx / 2, y0 = cy - sy / 2, y1 = cy + sy / 2, z0 = cz - sz / 2, z1 = cz + sz / 2;
+    const F = [[[x0, y1, z0], [x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [0, 1, 0]], [[x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1], [1, 0, 0]], [[x0, y0, z1], [x0, y1, z1], [x0, y1, z0], [x0, y0, z0], [-1, 0, 0]],
+      [[x1, y0, z1], [x1, y1, z1], [x0, y1, z1], [x0, y0, z1], [0, 0, 1]], [[x0, y0, z0], [x0, y1, z0], [x1, y1, z0], [x1, y0, z0], [0, 0, -1]]];
+    for (const [a, b, c, d, n] of F) {
+      const k = pos.length / 3; for (const p of [a, b, c, d]) { pos.push(...p); nrm.push(...n); uv.push(p[2], p[1]); }
+      const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]], cr = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+      if (cr[0] * n[0] + cr[1] * n[1] + cr[2] * n[2] > 0) idx.push(k, k + 1, k + 2, k, k + 2, k + 3); else idx.push(k, k + 2, k + 1, k, k + 3, k + 2);
+    }
+  };
+  cube(0, 0.505, 0, CAR.W, 1.01, CAR.L);          // the body, 0-1.01 m (its sides' foot the tyres and the sills, to the ground)
+  cube(0, 1.285, -0.2, 1.6, 0.55, 2.5);           // the cabin, to 1.56 m, set back
+  return raw(pos, nrm, uv, idx, 0.5);
+}
+// the principal axes of a footprint: its centre, the long axis' angle, its extents along and across
+function obb(poly) {
+  let cx = 0, cz = 0; for (const p of poly) { cx += p[0]; cz += p[1]; } cx /= poly.length; cz /= poly.length;
+  let sxx = 0, szz = 0, sxz = 0; for (const p of poly) { const dx = p[0] - cx, dz = p[1] - cz; sxx += dx * dx; szz += dz * dz; sxz += dx * dz; }
+  const a = 0.5 * Math.atan2(2 * sxz, sxx - szz), u = [Math.cos(a), Math.sin(a)], v = [-u[1], u[0]];
+  let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+  for (const p of poly) { const pu = (p[0] - cx) * u[0] + (p[1] - cz) * u[1], pv = (p[0] - cx) * v[0] + (p[1] - cz) * v[1]; u0 = Math.min(u0, pu); u1 = Math.max(u1, pu); v0 = Math.min(v0, pv); v1 = Math.max(v1, pv); }
+  const mu = (u0 + u1) / 2, mv = (v0 + v1) / 2;
+  return { c: [cx + u[0] * mu + v[0] * mv, cz + u[1] * mu + v[1] * mv], a, L: u1 - u0, W: v1 - v0 };
 }
 
 // a gable roof over a w x d rectangle at height y (rise: 40 % of the half-span), turned by a about y
-function gableRoof(c, L, W, y, a, seed) {
-  const rise = W * 0.5 * 0.8, hl = L / 2 + 0.25, hw = W / 2 + 0.3;
+function gableRoof(c, L, W, y, a, seed, riseIn = null) {
+  const rise = riseIn != null ? riseIn : W * 0.5 * 0.8, hl = L / 2 + 0.25, hw = W / 2 + 0.3;
   const P = (u, v, yy) => { const ca = Math.cos(a), sa = Math.sin(a); return [c[0] + ca * u - sa * v, yy, c[1] + sa * u + ca * v]; };
   const pos = [], nrm = [], uv = [], idx = [];
   const quad = (p, n) => { const k = pos.length / 3; for (const q of p) { pos.push(...q); nrm.push(...n); uv.push(q[0], q[2]); } idx.push(k, k + 1, k + 2, k, k + 2, k + 3); };
@@ -174,162 +224,137 @@ function bayGeo(c, u, n, w, out, y0, y1, base, seed) {
   return g;
 }
 
-// lots along the four sides of every block, inside the land (past the Embarcadero), out of the parks
-export function buildCity(world, M, landAt, out) {
+// the city: buildings from the footprints, the parked cars, the street lights and trees (SM: near.js's plan)
+export function buildCity(world, M, landAt, out, SM) {
   const t0 = performance.now();
-  const r = rng(3591);
   const CM = cityMats(world);
   const tiles = new Map();
   const tileOf = (x, z) => { const k = Math.floor((x + 1000) / 260) + ',' + Math.floor((z + 1000) / 260); if (!tiles.has(k)) tiles.set(k, new Bins(world, 'city ' + k)); return tiles.get(k); };
-  const hw = GRID.street / 2;
-  const blocks = [];
-  const kx0 = Math.floor((NEAR.x0 - GRID.x0) / GRID.px) - 1, kx1 = Math.ceil((NEAR.x1 - GRID.x0) / GRID.px);
-  const kz0 = Math.floor((-60 - GRID.z0) / GRID.pz), kz1 = Math.ceil((NEAR.z1 - GRID.z0) / GRID.pz);
-  const parks = Object.values(PARKS);
-  const lot = 7.62;
-  let nb = 0, tri = 0;
   const footprints = [], streetTrees = [];
-  // the traced buildings: their footprints extruded, flat roofs with a parapet line (the facade shader's cornice)
-  const traced = LANDUSE.buildings.map(b => ({ ...b, poly: b.poly || [[b.r[0], b.r[1]], [b.r[2], b.r[1]], [b.r[2], b.r[3]], [b.r[0], b.r[3]]] }));
-  for (const t of traced) {
-    const ys = t.poly.map(([x, z]) => landAt(x, z)), y0 = Math.min(...ys) - 0.3, H = 0.6 + t.st * 3.6;
-    const seed = hash2(Math.round(t.poly[0][0]), Math.round(t.poly[0][1])) * 0.999;
-    const g = prismUV(t.poly, y0, Math.max(...ys) + H, seed, Math.min(...ys));
-    const cx = t.poly.reduce((a, p) => a + p[0], 0) / t.poly.length, cz = t.poly.reduce((a, p) => a + p[1], 0) / t.poly.length;
-    tileOf(cx, cz).add(CM.facade, g, 'traced');
-    footprints.push([...t.poly.flat().slice(0, 2), ...t.poly.flat().slice(4, 6), +(Math.max(...ys) + H).toFixed(1)]);
-    nb++;
-  }
-  for (let kx = kx0; kx < kx1; kx++) for (let kz = kz0; kz < kz1; kz++) {
-    const bx0 = GRID.x0 + kx * GRID.px + hw, bx1 = GRID.x0 + (kx + 1) * GRID.px - hw;
-    const bz0 = GRID.z0 + kz * GRID.pz + hw, bz1 = GRID.z0 + (kz + 1) * GRID.pz - hw;
-    blocks.push([bx0, bz0, bx1, bz1]);
-    // the four sides: lots of 25 ft, depth to the block's middle (with a rear yard)
-    const sides = [
-      { o: [bx0, bz0], u: [1, 0], n: [0, -1], L: bx1 - bx0, D: (bz1 - bz0) / 2 },      // the north side, facing north
-      { o: [bx1, bz1], u: [-1, 0], n: [0, 1], L: bx1 - bx0, D: (bz1 - bz0) / 2 },     // south
-      { o: [bx0, bz1], u: [0, -1], n: [-1, 0], L: bz1 - bz0, D: 0 },                  // west (corner lots only: the N-S frontage is short)
-      { o: [bx1, bz0], u: [0, 1], n: [1, 0], L: bz1 - bz0, D: 0 },
-    ];
-    for (const sd of sides.slice(0, 2)) {
-      let s = 0;
-      while (s < sd.L - 1) {
-        const cx = sd.o[0] + sd.u[0] * s, cz = sd.o[1] + sd.u[1] * s;
-        // the zone at this lot: the waterfront's distance, the ground's height
-        const mid = [cx + sd.u[0] * lot * 0.5 - sd.n[0] * 8, cz + sd.u[1] * lot * 0.5 - sd.n[1] * 8];
-        if (mid[0] < NEAR.x0 + 4 || mid[0] > NEAR.x1 - 4 || mid[1] > NEAR.z1 - 4) { s += lot; continue; }
-        const dShore = -landAt.shore(mid[0], mid[1]);
-        if (dShore < 44 || parks.some(p => inPoly(mid[0], mid[1], p))) { s += lot; continue; }
-        // (never on the Embarcadero: its far sidewalk ends 19 m from the centreline; a lot's middle 8 m back from the street)
-        if (Math.abs(landAt.emb(mid[0], mid[1])) < 27 || Math.abs(landAt.emb(cx, cz)) < 20) { s += lot; continue; }
-        if (LANDUSE.parking.some(q => mid[0] > q[0] - 4 && mid[0] < q[2] + 4 && mid[1] > q[1] - 4 && mid[1] < q[3] + 4) || traced.some(t => inPoly(mid[0], mid[1], t.poly))) { s += lot; continue; }
-        const y0 = landAt(mid[0], mid[1]);
-        const hill = y0 > 18;
-        // merged lots: apartments and commercial by the waterfront and on the flats
-        let w = lot;
-        const big = !hill && (dShore < 260 ? r() < 0.55 : r() < 0.25);
-        if (big) w = lot * (2 + Math.floor(r() * 4));
-        w = Math.min(w, sd.L - s);
-        if (w < 3) break;
-        const depth = Math.min(sd.D - 2, hill ? 11 + r() * 9 : (big ? 22 + r() * 14 : 14 + r() * 12));
-        let storeys = hill ? 2 + Math.floor(r() * 2.6) : (big ? 3 + Math.floor(r() * 4) : 2 + Math.floor(r() * 3));
-        if (dShore < 120 && big) storeys = Math.min(storeys, 4);
-        const H = 0.6 + storeys * 3.2;
-        // footprint corners (along u, in along -n)
-        const ax = cx, az = cz, bxp = cx + sd.u[0] * w, bzp = cz + sd.u[1] * w;
-        const dx = -sd.n[0] * depth, dz = -sd.n[1] * depth;
-        const xs = [ax, bxp, ax + dx, bxp + dx], zs = [az, bzp, az + dz, bzp + dz];
-        const fx0 = Math.min(...xs), fx1 = Math.max(...xs), fz0 = Math.min(...zs), fz1 = Math.max(...zs);
-        // the ground under it: stand on the lowest corner, the base down to it (hillside garages)
-        const ys = [landAt(fx0, fz0), landAt(fx1, fz0), landAt(fx0, fz1), landAt(fx1, fz1)];
-        const yb = Math.min(...ys) - 0.3, yt = (ys[0] + ys[1] + ys[2] + ys[3]) / 4 + H;
-        const seed = (hash2(Math.round(cx * 10), Math.round(cz * 10)) * 0.999);
-        const B = tileOf((fx0 + fx1) / 2, (fz0 + fz1) / 2);
-        const g = box([(fx0 + fx1) / 2, (yb + yt) / 2, (fz0 + fz1) / 2], [fx1 - fx0 - 0.15, yt - yb, fz1 - fz0 - 0.15], { seed });
-        // the facade's v is metres above the street at its front: shift the box's uv so windows start at the ground
-        { const uvA = g.attributes.uv, pA = g.attributes.position; for (let i = 0; i < uvA.count; i++) uvA.setY(i, pA.getY(i) - Math.min(...ys)); }
-        B.add(CM.facade, g, 'buildings');
-        // a parapet and, on some, a rooftop box or a pitched roof
-        // the roofline: a cornice cap round the top (the line that draws every SF facade's edge), then a pitched roof on a
-        // fifth of the hill's houses (a gable to the street), else a rooftop box (stair or lift housing, a tank) on some
-        B.add(CM.trim, box([(fx0 + fx1) / 2, yt - 0.2, (fz0 + fz1) / 2], [fx1 - fx0 + 0.15, 0.4, fz1 - fz0 + 0.15], { seed }), 'cornices');
-        if (r() < 0.22 && hill) {
-          const along = Math.abs(sd.u[0]) > 0.5;      // the ridge runs back from the street (a gable end to it)
-          B.add(CM.roof, gableRoof([(fx0 + fx1) / 2, (fz0 + fz1) / 2], along ? fz1 - fz0 : fx1 - fx0, along ? fx1 - fx0 : fz1 - fz0, yt, along ? Math.PI / 2 : 0, seed), 'roofs');
-        } else if (r() < 0.3) {
-          B.add(CM.facade, box([fx0 + (fx1 - fx0) * (0.25 + 0.5 * r()), yt + 1.2, fz0 + (fz1 - fz0) * (0.25 + 0.5 * r())], [2.4, 2.4, 2.4], { seed }), 'roofs');
+  const st = { bays: 0, gables: 0, boxes: 0, garages: 0, tooTall: 0 };
+  // ---- the buildings
+  for (const b of SM.buildings) {
+    const ys = b.p.map(([x, z]) => landAt(x, z)), base = Math.min(...ys);
+    const H = Math.max(3, b.r - b.g), top = base + H, frac = hash2(Math.round(b.c[0] * 10), Math.round(b.c[1] * 10));
+    // (a garage's open decks on its walls when the car park is most of the footprint: DataSF joins some garages to their
+    // offices; those keep their windows and carry the cars on the deck's part of the roof)
+    const seed = packSeed(H, frac, b.garage >= 0.6), Bn = tileOf(b.c[0], b.c[1]);
+    Bn.add(CM.facade, extrude(b.p, b.h, base - 0.3, top, seed, base), 'buildings');
+    if (b.garage) {
+      // the roof deck's parapet (1 m round the deck, both faces: seen from the deck too)
+      const deck = b.deck || b.p, ps = packSeed(H + 1.0, frac, true);
+      Bn.add(CM.facade, extrude(deck, [], top, top + 1.0, ps, base, false), 'buildings');
+      Bn.add(CM.facade, extrude(deck, [], top, top + 1.0, ps, base, false, true), 'buildings');
+      st.garages++;
+    }
+    footprints.push([+b.box[0].toFixed(1), +b.box[1].toFixed(1), +b.box[2].toFixed(1), +b.box[3].toFixed(1), +top.toFixed(1)]);
+    const lift = b.k - b.r, house = H < 13 && b.area < 260 && !b.garage;
+    // a gable where the LiDAR's peak stands well over its median (a pitched roof's ridge: 2.4 m clears the parapets,
+    // chimneys and the trees over a roof's edge), on a house
+    if (house && lift > 2.4) {
+      const o = obb(b.p);
+      if (o.W > 3 && o.L > 4) { Bn.add(CM.roof, gableRoof(o.c, o.L, o.W, top, o.a, seed, Math.min(4.0, Math.max(1.4, lift * 1.4))), 'roofs'); st.gables++; }
+    } else if (!b.garage && lift > 1.2 && b.area > 150 && hash2k(b.c[0], b.c[1], 31) < 0.6 &&
+      [[0, 0], [-1.8, -1.8], [1.8, -1.8], [1.8, 1.8], [-1.8, 1.8]].every(([dx, dz]) => inPoly(b.c[0] + dx, b.c[1] + dz, b.p) && !b.h.some(h => inPoly(b.c[0] + dx, b.c[1] + dz, h)))) {
+      // a rooftop box (a stair or lift housing, a tank) where the peak stands over a flat roof (on the roof: off any courtyard)
+      const sz = 2.4 + 1.2 * hash2k(b.c[0], b.c[1], 32), h = Math.min(4.0, Math.max(2.2, lift));
+      const g = box([b.c[0], top + h / 2, b.c[1]], [sz, h, sz], { seed: packSeed(h, frac, false) });
+      Bn.add(CM.facade, g, 'roofs'); st.boxes++;
+    }
+    // canted bay windows on a house's or small flats' street faces (from the second storey to under the cornice)
+    if (!b.garage && H > 6.5 && H < 18 && b.area < 900) {
+      for (let i = 0; i < b.p.length; i++) {
+        const a = b.p[i], c = b.p[(i + 1) % b.p.length], L = Math.hypot(c[0] - a[0], c[1] - a[1]);
+        if (L < 4.5 || L > 14) continue;
+        const u = [(c[0] - a[0]) / L, (c[1] - a[1]) / L], m = [(a[0] + c[0]) / 2, (a[1] + c[1]) / 2];
+        let n = [u[1], -u[0]]; if (inPoly(m[0] + n[0] * 0.3, m[1] + n[1] * 0.3, b.p)) n = [-n[0], -n[1]];
+        const F = SM.fieldAt(m[0] + n[0] * 3.5, m[1] + n[1] * 3.5), F2 = SM.fieldAt(m[0] + n[0] * 0.9, m[1] + n[1] * 0.9);
+        if (!(F.dB < 0 && F.dK > 0.3 && F2.dK > 0.4)) continue;
+        if (hash2k(m[0], m[1], 33) > 0.7) continue;
+        const nb = L > 10 ? 2 : 1, yg = landAt(m[0] + n[0], m[1] + n[1]);
+        const y0 = Math.max(base + 3.3, yg + 2.7), y1 = top - 0.6;
+        if (y1 - y0 < 2.5) continue;
+        for (let k = 0; k < nb; k++) {
+          const t = (k + 0.5) / nb * L, cc = [a[0] + u[0] * t, a[1] + u[1] * t];
+          Bn.add(CM.facade, bayGeo(cc, u, n, 3.0, 0.75, y0, y1, base, seed), 'bays'); st.bays++;
         }
-        // bay windows (San Francisco's: a canted bay 3 m across, 0.75 m out, from the second storey to the top) on the
-        // houses and small flats along the street
-        if (!big && storeys >= 2 && r() < 0.7) {
-          const nbw = w > 9 ? 2 : 1;
-          for (let k = 0; k < nbw; k++) {
-            const uc = s + (k + 0.5) * w / nbw, bxc = sd.o[0] + sd.u[0] * uc, bzc = sd.o[1] + sd.u[1] * uc;
-            const yb0 = Math.min(...ys) + 3.3, yb1 = yt - 0.5;
-            if (yb1 - yb0 < 2.5) continue;
-            B.add(CM.facade, bayGeo([bxc, bzc], sd.u, sd.n, 3.0, 0.75, yb0, yb1, Math.min(...ys), seed), 'bays');
-          }
-        }
-        // a street tree in front of one lot in three (planted in the sidewalk, 1.2 m from the kerb)
-        if (r() < 0.36) {
-          const tx = cx + sd.u[0] * w * 0.5 + sd.n[0] * 2.2, tz = cz + sd.u[1] * w * 0.5 + sd.n[1] * 2.2;
-          streetTrees.push([tx, landAt(tx, tz), tz, 5 + r() * 4, 3 + r() * 2]);
-        }
-        footprints.push([+fx0.toFixed(1), +fz0.toFixed(1), +fx1.toFixed(1), +fz1.toFixed(1), +yt.toFixed(1)]);
-        nb++;
-        s += w;
       }
     }
   }
-  // the surface parking lots (traced): bays 2.6 x 5.5 m in double rows with 7 m aisles, three cars in four bays (an
-  // evening's occupancy, est.)
-  const parked = [];
-  for (const [x0p, z0p, x1p, z1p] of LANDUSE.parking) {
-    for (let x = x0p + 3; x < x1p - 3; x += 2.6) for (let z = z0p + 4; z < z1p - 4; z += 18) for (const dz of [0, 5.6]) {
-      if (r() > 0.75) continue;
-      const y = landAt(x, z + dz);
-      parked.push([x, y - 0.04, z + dz + 2.75, r()]);
+  // ---- the parked cars: one instanced mesh (the stalls' at grade and on the roof decks, the kerbside), one colour a car
+  const cars = SM.cars, carM = new T.Matrix4(), q = new T.Quaternion(), e = new T.Euler(0, 0, 0, 'YXZ'), V = new T.Vector3(), S1 = new T.Vector3(1, 1, 1);
+  const deckY = new Map(); for (const L of SM.lots) if (L.kind === 'garage') { const b = L.bldg, ys = b.p.map(([x, z]) => landAt(x, z)); deckY.set(L.id, Math.min(...ys) + Math.max(3, b.r - b.g)); }
+  const seeds = new Float32Array(cars.length);
+  const mats = cars.map((c, i) => {
+    const yaw = Math.PI / 2 - c.a, ca = Math.cos(c.a), sa = Math.sin(c.a);
+    let y, pitch = 0, roll = 0;
+    if (c.kind === 'roof') y = deckY.get(c.ref);
+    else {
+      // on the ground mesh's slope (its own triangles): pitch from front to back, roll from side to side
+      const G = landAt.mesh || landAt;
+      const yF = G(c.x + ca * 2.0, c.z + sa * 2.0), yB = G(c.x - ca * 2.0, c.z - sa * 2.0), yR = G(c.x + sa * 0.8, c.z - ca * 0.8), yL = G(c.x - sa * 0.8, c.z + ca * 0.8);
+      y = (yF + yB) / 2 - 0.02; pitch = -Math.atan2(yF - yB, 4.0); roll = Math.atan2(yR - yL, 1.6);
     }
-  }
-  if (parked.length) {
-    const wheel = (x, z) => cylinder([x - 0.11, 0.32, z], [x + 0.11, 0.32, z], 0.32, 8);
-    const carG = merge([box([0, 0.66, 0], [1.8, 0.7, 4.5]), box([0, 1.3, 0.2], [1.6, 0.6, 2.4]), wheel(0.8, 1.4), wheel(-0.8, 1.4), wheel(0.8, -1.4), wheel(-0.8, -1.4)]);
-    const cm = world.mesh(carG, CM.cars, { count: parked.length, name: 'city:parked cars' });
-    parked.forEach(([x, y, z, k], i) => cm.setMatrixAt(i, new T.Matrix4().compose(new T.Vector3(x, y, z), new T.Quaternion().setFromAxisAngle(new T.Vector3(0, 1, 0), k < 0.5 ? 0 : Math.PI), new T.Vector3(1, 1, 1))));
+    seeds[i] = hash2k(c.x, c.z, 41);
+    e.set(pitch, yaw, roll); q.setFromEuler(e);
+    return carM.compose(V.set(c.x, y, c.z), q, S1).clone();
+  });
+  let carCheck = null;
+  if (cars.length) {
+    const g = carGeo(); g.setAttribute('aSeed', new T.InstancedBufferAttribute(seeds, 1));
+    const cm = world.mesh(g, CM.cars, { count: cars.length, name: 'city:parked cars' });
+    mats.forEach((m, i) => cm.setMatrixAt(i, m));
     cm.instanceMatrix.needsUpdate = true; cm.computeBoundingSphere();
+    carCheck = checkCars(cars, SM);
+    if (carCheck.faults) console.warn('[pier] parked cars: ' + carCheck.faults + ' faults', JSON.stringify(carCheck));
   }
-  // the street lights (CITY_LAMP; their pools are land.js's): a pole, an arm over the road, a lit head
+  // the stalls' lines (white, 0.1 m), at grade and on the decks
+  if (SM.lines.length) {
+    const pos = [], nrm = [], uv = [], idx = [];
+    for (const l of SM.lines) {
+      const ca = Math.cos(l.a), sa = Math.sin(l.a), hw = 0.05, hl = l.len / 2, cx = l.x, cz = l.z;
+      const y = l.kind === 'roof' ? deckY.get(l.ref) + 0.02 : null;
+      const k = pos.length / 3;
+      for (const [su, sv] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+        const x = cx + ca * su * hl - sa * sv * hw, z = cz + sa * su * hl + ca * sv * hw;
+        pos.push(x, y != null ? y : (landAt.mesh || landAt)(x, z) + 0.03, z); nrm.push(0, 1, 0); uv.push(su, sv);
+      }
+      idx.push(k, k + 2, k + 1, k, k + 3, k + 2);
+    }
+    const g = raw(pos, nrm, uv, idx);
+    world.mesh(g, M.flat('stall lines', '#d6d4cc', { rough: 0.8 }), { name: 'city:stall lines', loose: 'paint: the stalls\' lines, 3 cm over the car park (a decal)' });
+  }
+  // ---- the street lights (CITY_LAMP; their pools are land.js's): a pole, an arm over the road, a lit head
   const poles = [], heads = [];
-  const lampAt = (x, z, ax, side) => {
-    if (x < NEAR.x0 + 2 || x > NEAR.x1 - 2 || z > NEAR.z1 - 2) return;
-    if (-landAt.shore(x, z) < 44 || Math.abs(landAt.emb(x, z)) < 19) return;
-    const y = landAt(x, z), o = side * (hw - CITY_LAMP.kerb), px = ax === 0 ? x : x, pz = z;
-    const inward = ax === 0 ? [0, -side] : [-side, 0];
+  for (const L of SM.lamps) {
+    const [px, pz] = L.pole, y = landAt(px, pz), hx = L.head[0], hz = L.head[1];
     poles.push(cylinder([px, y, pz], [px, y + CITY_LAMP.h + 0.1, pz], 0.09, 6));
-    const hx = px + inward[0] * 1.8, hz = pz + inward[1] * 1.8;
     poles.push(beam([px, y + CITY_LAMP.h, pz], [hx, y + CITY_LAMP.h + 0.15, hz], 0.07, 0.07));
     heads.push(box([hx, y + CITY_LAMP.h + 0.05, hz], [0.5, 0.12, 0.5]));
-  };
-  for (let k = Math.floor((NEAR.z0 - GRID.z0) / GRID.pz); k <= Math.ceil((NEAR.z1 - GRID.z0) / GRID.pz); k++) {
-    const zc = GRID.z0 + k * GRID.pz, sp = GRID.px / CITY_LAMP.perEW;
-    for (let j = Math.floor((NEAR.x0 - GRID.x0) / sp) - 1; j <= Math.ceil((NEAR.x1 - GRID.x0) / sp); j++) {
-      const t = (j + 0.5) * sp, side = ((j % 2) + 2) % 2 === 0 ? 1 : -1;
-      lampAt(GRID.x0 + t, zc + side * (hw - CITY_LAMP.kerb), 0, side);
-    }
-  }
-  for (let k = Math.floor((NEAR.x0 - GRID.x0) / GRID.px); k <= Math.ceil((NEAR.x1 - GRID.x0) / GRID.px); k++) {
-    const xc = GRID.x0 + k * GRID.px, sp = GRID.pz / CITY_LAMP.perNS;
-    for (let j = Math.floor((-60 - GRID.z0) / sp) - 1; j <= Math.ceil((NEAR.z1 - GRID.z0) / sp); j++) {
-      const t = (j + 0.5) * sp, side = ((j % 2) + 2) % 2 === 0 ? 1 : -1;
-      lampAt(xc + side * (hw - CITY_LAMP.kerb), GRID.z0 + t, 1, side);
-    }
   }
   if (poles.length) {
     world.mesh(merge(poles), CM.pole, { name: 'city:street light poles' });
     world.mesh(merge(heads), CM.head, { name: 'city:street light heads' });
   }
+  // ---- street trees: on the sidewalks 1 m behind the kerb, every 8 m a place, a third planted (fewer on the hill), clear
+  // of the corners, the lights, the parked cars' doors and the buildings' faces
+  for (const w of SM.ways) {
+    for (const sd of [1, -1]) {
+      const side = sd > 0 ? w.L : w.R; if (side.wk < 2.2) continue;
+      for (let s = 4; s < w.len - 4; s += 8) {
+        const f = SM.along(w, s), o = side.hr + 1.0, x = f.x + f.n[0] * sd * o, z = f.z + f.n[1] * sd * o;
+        const y = landAt(x, z), pk = y > 18 ? 0.18 : 0.32;
+        if (hash2k(x, z, 51) > pk) continue;
+        if (!onLand(x, z) || embClear(x, z) < 3 || SM.nearJunction(x, z, 4) || SM.nearLamp(x, z, 4)) continue;
+        const F = SM.fieldAt(x, z); if (!(F.dK > 0.6 && F.dB < -0.5)) continue;
+        if (SM.inBuilding(x, z) || SM.inBuilding(x + f.n[0] * sd * 1.8, z + f.n[1] * sd * 1.8)) continue;
+        streetTrees.push([x, y, z, 5 + 4 * hash2k(x, z, 52), 3 + 2 * hash2k(x, z, 53)]);
+      }
+    }
+  }
   const meshes = [];
+  let tri = 0;
   for (const B of tiles.values()) { meshes.push(...B.flush()); tri += B.total(); }
-  out.city = { buildings: nb, tri, blocks: blocks.length, ms: performance.now() - t0, footprints, meshes, streetTrees };
+  out.city = { buildings: SM.buildings.length, tri, ms: performance.now() - t0, footprints, meshes, streetTrees, details: st, lamps: SM.lamps.length, cars: carCheck, lots: SM.lots.map(l => ({ kind: l.kind, id: l.osm || l.id, stalls: l.stalls, cars: l.cars })) };
   return out.city;
 }

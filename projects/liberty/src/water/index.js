@@ -15,6 +15,7 @@ import { buildLife } from './life.js';
 import { makeStatePass } from './state.js';
 import { makeLightPasses } from './lights.js';
 import { pileWakeMap } from './piles.js';
+import { bakeObstacleField, flowUniforms, flowPhysics, FLOW_SOURCES } from 'scene3d/flow.js';
 import { placeCamera, frame } from 'scene3d/host.js';
 
 const T = window.THREE;
@@ -53,10 +54,28 @@ export async function build(world, ctx) {
   const F = await bakeField({ P, spec, waterline, solids, decks, nearDem, farDem });
   const field_ms = Math.round(performance.now() - tf);
   const TX = fieldTextures(F, nearDem, farDem, [lutTile(spec, NQ)]), S = fieldSamplers(F);
-  // the piles in the ebb and their wakes (piles.js; events.js pilesAt): only those in a current and under the sky
+  // the piles in the ebb (piles.js): only those in a current and under the sky; their wakes are flow.js's, below
   const tPW = performance.now();
   const PW = pier && pier.piles ? pileWakeMap(pier.piles, (x, z) => S.env(x, z), { hullAt: (x, z) => S.hull(x, z) }) : { live: 0, piles: 0, tex: null };
   PW.ms = Math.round(performance.now() - tPW);
+  // the current past obstacles (engine/scene3d/flow.js, round 8): the live piles (in an ebb over 0.25 m/s, under the sky,
+  // 8 m clear of her side: piles.js) and the pyro barge once the stage module has placed it (the first frame: it builds
+  // after the water). Her two ends only with ?wflowhull=1: the ebb crosses her broadside there (-x against her length
+  // along z), which a disc can't draw (a 10 m disc's crescent ran along her side as a bright line, tour 50 s)
+  const curAt = (x, z) => { const e = S.env(x, z); return e && (e.sky ?? 1) > 0.3 ? [e.vx, e.vz] : null; };
+  const obstacles = (PW.livePiles || []).map(([x, z, r]) => ({ x, z, d: 2 * r, kind: 'pile' }));
+  if (hull && waterline.length > 8 && q.get('wflowhull') === '1') {
+    const zs = waterline.map(p => p[1]), zmin = Math.min(...zs), zmax = Math.max(...zs);
+    for (const [zEnd, sgn] of [[zmin, 1], [zmax, -1]]) {
+      const zi = zEnd + sgn * 10, xs = waterline.filter(p => Math.abs(p[1] - zi) < 1.5).map(p => p[0]);
+      const end = waterline.reduce((a, p) => (Math.abs(p[1] - zEnd) < Math.abs(a[1] - zEnd) ? p : a));
+      if (xs.length >= 2) obstacles.push({ x: end[0], z: end[1] + sgn * 0.25 * (Math.max(...xs) - Math.min(...xs)), d: Math.max(...xs) - Math.min(...xs), kind: 'hull end' });
+    }
+  }
+  // (?wflowtest=x,z,d: a test cylinder of diameter d at (x, z), for the model's calibration against the literature)
+  if (q.get('wflowtest')) { const [x, z, d] = q.get('wflowtest').split(',').map(Number); obstacles.push({ x, z, d, kind: 'test' }); }
+  const wantFlow = q.get('wpiles') !== '0' && q.get('wflow') !== '0';
+  let flowField = wantFlow ? bakeObstacleField({ obstacles, currentAt: curAt }) : null, flowBarge = false;
 
   // ---- the surface
   const grid = polarGrid({ r0: 0.3, rFine: +(q.get('wrfine') || 300), rMax: P.WORLD.far, seg: 192 });
@@ -99,7 +118,6 @@ export async function build(world, ctx) {
     uWkA: { value: wkA }, uWkB: { value: wkB }, uNumWk: { value: 0 }, uWkTrack: { value: wkTrack }, uWkBox: { value: Array.from({ length: NWAKE }, () => new T.Vector4()) },
     uMinor: { value: Array.from({ length: 16 }, () => new T.Vector4()) }, uMinorC: { value: Array.from({ length: 16 }, () => new T.Vector4()) }, uNumMinor: { value: 0 },
     uHullRefl: { value: new T.Vector4(0.85, 2.0, 1, 0) },
-    uPileTex: { value: PW.tex || new T.DataTexture(new Float32Array(4), 1, 1, T.RGBAFormat, T.FloatType) }, uPileBox: { value: new T.Vector4(...(PW.tex && q.get('wpiles') !== '0' ? PW.box : [0, 0, 0, 0])) },
     uDbg: { value: new T.Vector4(64, 1, 0, +(q.get('wdbg') || 0)) },
     uWS: { value: Array.from({ length: 80 }, () => new T.Vector4()) }, uNumWS: { value: 0 }, uDbg2: { value: new T.Vector4(...(q.get('wdbg2') || '0,0,0,0').split(',').map(Number)) },
     uRefr: { value: pipe.RT_REFR.texture }, uG: { value: pipe.RT_G.texture },
@@ -129,7 +147,8 @@ export async function build(world, ctx) {
   // cut (2026-10-23): part of what threw the city's dashes. ?wfar=1 brings it back)
   (world.U.uMirrorFar || (world.U.uMirrorFar = { value: 0 })).value = +(q.get('wfar') ?? 0);
   U.uReflDash = { value: pipe.RT_REFL.texture }; U.uReflEx = { value: LP.exRT.texture }; U.uLight = { value: LP.glitRT.texture };
-  U.uPileLine = { value: +(q.get('wpileline') ?? 0.16) };   // (the piles' wake lines' share of the way to foam: shade.js)
+  U.uPileTone = { value: +(q.get('wpiletone') ?? 0.45) };   // (the obstacles' wake marks: how far a mark moves the plate's value, x(1 +- this): shade.js)
+  flowUniforms(flowField, U);
   // (the lights' reflection's named gain over the physics, shade.js: 1.25, the glitter pass's measured shortfall against
   // the exact single scatter, per visible reflection 0.54-1.12 over round 6's 13 frames (median 0.75): its parallax search
   // half-misses lights a few metres off the water seen from afar. At 1.25 every frame's median lies in 0.67-1.40)
@@ -162,6 +181,17 @@ export async function build(world, ctx) {
     if (state) state.render(renderer, camera);
     world.U.uMirrorPx.value = mirrorPx();
     U.uReflDash.value = pipe.RT_REFL.texture;
+    // (the barge joins the obstacles once the stage module has placed it: its width across the current, at its middle)
+    if (wantFlow && !flowBarge && ctx.mods.stage && !ctx.mods.stage.failed) {
+      flowBarge = true; const bg = ctx.mods.stage.barge || (ctx.mods.stage.measures || {}).barge;   // (the stage's measures carry it: { at, footprint })
+      if (bg && bg.footprint && q.get('wflowbarge') !== '0') {
+        const c = curAt(bg.at[0], bg.at[1]);
+        if (c) { const u = Math.hypot(c[0], c[1]) || 1, nx = -c[1] / u, nz = c[0] / u, w = bg.footprint.map(([x, z]) => x * nx + z * nz);
+          obstacles.push({ x: bg.at[0], z: bg.at[1], d: Math.max(...w) - Math.min(...w), kind: 'barge' });
+          const old = flowField; flowField = bakeObstacleField({ obstacles, currentAt: curAt }); flowUniforms(flowField, U);
+          if (old && old.tex) { old.tex.dispose(); old.dir.dispose(); } }
+      }
+    }
     U.uLight.value = LP.glitRT.texture;
     if (q.get('wlights') === '0' || !state) return;
     LP.render(renderer, camera, state.textures[0], state.rt);
@@ -311,7 +341,11 @@ export async function build(world, ctx) {
   }
   measures.fetchLaw = { note: 'JONSWAP fetch law at the plan wind: Hs = 0.0016 U sqrt(F/g), Tp = 2 pi / (22 (g^2 / U F)^(1/3))', berth230m: { Hs: +fetchHs(spec.U, 230).toFixed(4), Tp: +(2 * Math.PI / fetchPeak(spec.U, 230)).toFixed(3) } };
   measures.grid = { tris: grid.tris, rings: grid.rings, seg: grid.seg };
-  measures.piles = { piles: PW.piles, inCurrent: PW.live, texels: PW.texels || null, covered: PW.covered || 0, ms: PW.ms, note: 'piles in an ebb over 0.25 m/s, under the sky (> 0.3) and over 8 m from her side: foam at the face, the strip, the V at asin(0.23/U), the Karman street at Strouhal 0.2' };
+  measures.flow = () => ({ obstacles: flowField ? flowField.live.length : 0, texels: flowField && flowField.texels, h: flowField && flowField.h,
+    kinds: flowField ? flowField.live.reduce((a, o) => { const k = o.kind || 'pile'; (a[k] = a[k] || { n: 0, d: [], U: [] }).n++; a[k].d.push(+o.d.toFixed(2)); a[k].U.push(+o.U.toFixed(2)); return a; }, {}) : {},
+    live: flowField ? flowField.live.map(o => [o.x, o.z, o.d, o.U, o.ux, o.uz, o.kind]) : [],
+    physics: (U, d) => flowPhysics(U, d), sources: FLOW_SOURCES });
+  measures.piles = { piles: PW.piles, inCurrent: PW.live, livePiles: (PW.livePiles || []).map(p => p.slice(0, 6).map(v => +v.toFixed(3))), ms: PW.ms, note: 'piles in an ebb over 0.25 m/s, under the sky (> 0.3) and over 8 m from her side; their wakes are flow.js\'s (measures.flow): ripple marks in the plate\'s tones (the bow hump, the V, the near wake\'s Karman eddies at Strouhal 0.2), foam at the face only above a diameter Froude number of 0.8' };
   // the mooring lines (the pier's catenaries, chock to bitts): how near the water they come; they never reach it
   if (pier && pier.lines) measures.moorings = pier.lines.map(L => ({ z: L.z, span: L.span ?? null, lowest_m: L.chock && L.bollard ? +Math.min(L.chock[1], L.bollard[1]).toFixed(2) : null }));
   measures.life = life.measures;

@@ -9,6 +9,7 @@ import { P35 } from './site.js';
 import { buildPier35, SUB, FEND } from './pier35.js';
 import { buildLand } from './land.js';
 import { buildCity } from './city.js';
+import { embClear } from './near.js';
 import { buildTrees, flushTrees } from './trees.js';
 import { buildCoit } from './coit.js';
 import { buildEmbarcadero } from './embarcadero.js';
@@ -29,8 +30,8 @@ export const CAMS = {
   pier_city: { pos: [14, 22, 60], at: [45, 55, 700], lens: 35, note: 'from over the apron abaft the ship to the bulkhead, Telegraph Hill and Coit Tower' },
   pier_p39: { pos: [12.5, 4.6, -112], at: [-300, 8, -170], lens: 28, note: 'from the apron ahead of the bow across the marina to Pier 39 and the wheel' },
   pier_overview: { pos: [60, 420, -760], at: [20, 0, 220], lens: 35, note: 'the whole near box from high in the north' },
-  pier_promenade: { pos: [-24, 4.6, 150], at: [220, 5, 310], lens: 24, note: 'the Embarcadero along the bulkheads from the promenade' },
-  pier_pavilion: { pos: [25.7, 4.6, 195.5], at: [42.65, 8.5, 170.7], lens: 28, note: 'Pier 35\'s pavilion from the Embarcadero: the arch, the pediment, PIER 35' },
+  pier_promenade: { pos: [-4.5, 4.6, 148.1], at: [210, 5, 295], lens: 24, note: 'the promenade along the bulkheads, 8 m off their face (the Embarcadero beyond it)' },
+  pier_pavilion: { pos: [28.4, 4.6, 180.9], at: [42.65, 8.5, 170.7], lens: 22, note: 'Pier 35\'s pavilion from the promenade\'s kerb: the arch, the pediment, PIER 35' },
   pier_bh_back: { pos: [20, 30, 100], at: [45, 8, 160], lens: 28, note: 'the bulkhead and the shed\'s end from above the apron' },
   pier_marina: { pos: [-60, 9, -40], at: [-240, 4, -170], lens: 28, note: 'over the east marina to Pier 39' },
   pier_wheel: { pos: [-470, 6, -150], at: [-577, 22, -40], lens: 28, note: 'the Ferris wheel and K-Dock from the west marina' },
@@ -43,7 +44,7 @@ export const CAMS = {
   pier_pilecam: { pos: [P35.x1 + 4.0, 0.9, -100.0], at: [P35.x1 + 0.25, 0.9, -100.0], lens: 40, note: 'a fender pile and the piles behind it face-on at the waterline: the growth bands' },
   pier_wallcam: { pos: [11.4, 7.0, -40.0], at: [18.6, 7.0, -40.0], lens: 20, note: 'the shed\'s west wall face-on from the apron\'s edge (the wear measure)' },
   pier_hill: { pos: [-110, 62, 400], at: [30, 70, 640], lens: 35, note: 'Telegraph Hill\'s houses, bays and roofs from above the Embarcadero' },
-  pier_street: { pos: [-147, 43.1, 520], at: [-147, 52.0, 640], lens: 28, note: 'a North Beach street climbing Telegraph Hill\'s west slope, eye height' },
+  pier_street: { pos: [-155.1, 41.9, 520], at: [-144.0, 52.6, 640], lens: 28, note: 'Grant Avenue climbing Telegraph Hill\'s west slope, eye height' },
   pier_p27: { pos: [330, 40, 180], at: [470, 4, 420], lens: 28, note: 'Piers 29 and 27 and the cruise terminal, the Embarcadero bending round them' },
   pier_westmarina: { pos: [-330, 12, -60], at: [-420, 2, -200], lens: 28, note: 'the west marina, K-Dock\'s sea lions and Pier 41 from Pier 39' },
   pier_wharf: { pos: [-40, 4.55, 86], at: [10, 4.0, 108], lens: 35, note: 'the timber wharf west of the root: blue lamps, the railing, gulls on it' },
@@ -66,9 +67,9 @@ export async function build(world, ctx) {
   const p35 = buildPier35(world, M, out, ctx.mods && ctx.mods.hull && !ctx.mods.hull.failed ? ctx.mods.hull : null);
   const bh = buildBulkhead(world, M, out);
   const land = await buildLand(world, M, out);
-  const city = buildCity(world, M, land.landAt, out);
+  const city = buildCity(world, M, land.landAt, out, land.SM);
   const coit = buildCoit(world, M, land.landAt, out);
-  const trees = buildTrees(world, land.landAt, out, { avoid: [[COIT.at[0], COIT.at[1], 16]] });
+  const trees = buildTrees(world, land.landAt, out, { avoid: [[COIT.at[0], COIT.at[1], 16]], blocked: (x, z) => !!land.SM.inBuilding(x, z) || land.SM.fieldAt(x, z).dB < 0.5 || embClear(x, z) < 1 });
   const treeStats = flushTrees(world, trees, city.streetTrees);
   const emb = buildEmbarcadero(world, M, land.landAt, out);
   const p39 = buildPier39(world, M, out);
@@ -137,7 +138,8 @@ export async function build(world, ctx) {
     shed: p35.shed.gables,
     piles: p35.piles.length, fenderPiles: p35.fenderPiles.length, bollards: p35.bollards.length,
     tris: p35.tri,
-    land: { tris: land.tris, ms: +land.ms.toFixed(0) }, city: { buildings: city.buildings, tris: city.tri, ms: +city.ms.toFixed(0) },
+    land: { tris: land.tris, ms: +land.ms.toFixed(0) }, city: { buildings: city.buildings, tris: city.tri, ms: +city.ms.toFixed(0), details: city.details, lamps: city.lamps, lots: city.lots, streetTrees: city.streetTrees.length },
+    cars: city.cars,              // the parked cars' check (near.js checkCars): faults must be 0
     dress: { gateZ: dress.gateZ, boothZ: dress.boothZ, landing: dress.landing }, life: { gulls: life.gulls, pigeons: life.pigeons, cormorants: life.cormorants },
     bulkhead: { length: bh.L, bays: bh.bays }, neighbours: { pier33: nbr.pier33, pier31: nbr.pier31 }, pier39: { buildings: p39.buildings, boats: p39.boats, masts: p39.masts, sealions: p39.sealions, wheel: p39.wheel }, coit: coit, trees: treeStats, embarcadero: { lamps: emb.lamps, palms: emb.palms, life: emb.life },
     buildMs: +(performance.now() - t0).toFixed(0),

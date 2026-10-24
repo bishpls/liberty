@@ -51,7 +51,8 @@ export function buildLasers(world, M, L, ctx, cues) {
     },
     // a chase: one beam stepping across the fan on each 1/8 note
     chase(a, t, { n = 8, az = 0, span = 80, el = 30, col, power = 1.8, len = 120 }) {
-      const k = Math.floor(beat(t) * 2) % n, u = k / (n - 1) - 0.5; return [{ a, b: out(a, dirAE(az + u * span, el), len), color: col, power }];
+      // (one beam, n 1: it stands at the chase's centre; k / (n - 1) was NaN there, so the outro's beacon never drew)
+      const k = Math.floor(beat(t) * 2) % n, u = n > 1 ? k / (n - 1) - 0.5 : 0; return [{ a, b: out(a, dirAE(az + u * span, el), len), color: col, power }];
     },
     // terminated: beams from the house top to points on the masts' crosstrees and the foremast (they end on them)
     toMasts(a, t, { col, power = 1.6 }) {

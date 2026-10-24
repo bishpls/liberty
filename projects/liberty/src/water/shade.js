@@ -14,7 +14,7 @@ import { EVENTS_GLSL } from './events.js';
 export const SHADE_GLSL = SURFACE_GLSL + /* glsl */`
 // (uReflDash: the planar reflection itself; uReflEx: its lights (the reflection less its broad tones, lights.js), its
 // depth in alpha; uLight: the lights' reflection on the water, the glitter pass's at half the frame's size)
-uniform sampler2D uReflDash; uniform sampler2D uReflEx; uniform sampler2D uLight; uniform float uLightGain; uniform float uSourceK; uniform vec4 uStroke; uniform float uPileLine; uniform sampler2D uRefr; uniform sampler2D uG; uniform mat4 uReflMatrix;
+uniform sampler2D uReflDash; uniform sampler2D uReflEx; uniform sampler2D uLight; uniform float uLightGain; uniform float uSourceK; uniform vec4 uStroke; uniform float uPileTone; uniform sampler2D uRefr; uniform sampler2D uG; uniform mat4 uReflMatrix;
 uniform vec3 uBody;              // the body's albedo (linear): turbid green-teal
 uniform vec4 uBodySky;           // the night body, drawn: x its share of the sky's horizon colour at grazing, y the share looking down
 uniform vec3 uAbsorb;            // its attenuation (1/m)
@@ -94,7 +94,7 @@ void smain(inout Surface s, vec3 P, vec3 V) {
   gShape = s1.xy; gShapeH = s1.z; gShapeVar = s1.w; gShapeHVar = s2.x;
   vec4 ev = vec4(0.0, 0.0, 1.0, s2.y);
   float wcusp = s2.w, wcode = s2.z;
-  float pileL = max(-wcusp, 0.0); wcusp = max(wcusp, 0.0);   // (state.js: a pile's wake line comes negative)
+  float pileT = wcusp < -0.5 ? -wcusp - 2.0 : 0.0; wcusp = max(wcusp, 0.0);   // (state.js: a pile's ripple marks' tone comes as -3..-1)
 #else
   // (in one pass: the same as state.js's, here; ?wpass=2 splits them, measured no faster: notes.md)
   float uvar, rvar, efoam, wcusp, wvar;
@@ -107,8 +107,9 @@ void smain(inout Surface s, vec3 P, vec3 V) {
   // rings (the director's review); they show in the mirror's slope, the cusp lines and the churn)
   float wch = wk.w * (0.55 + 0.3 * vnoise(P.xz * 0.28 + uTime * 0.05) + 0.15 * vnoise(P.xz * 0.9 - uTime * 0.1)), wchw = fwidth(wch) + 1e-3;
   float wfoam = max(saturate(efoam) * uLook2.z, smoothstep(0.5 - wchw, 0.5 + wchw, wch) * 0.85);
-  float pline, pfoam = pilesAt(P.xz, env.gb, fp, pline);       // (the piles in the ebb: piles.js)
-  wfoam = max(wfoam, pfoam); float pileL = pline > wcusp ? pline : 0.0;
+  float pileT, fvar; vec2 fsl; float pfoam = flowWake(P.xz, fp, uTime, pileT, fsl, fvar);   // (the obstacles' wakes: engine/scene3d/flow.js)
+  sl += fsl; uvar += fvar;
+  wfoam = max(wfoam, pfoam);
   float wcode = gRingLine > 0.004 ? 1.0 + saturate(gRingLine) : wfoam;
 #endif
   vec3 N = normalize(vec3(-sl.x, 1.0, -sl.y));
@@ -252,6 +253,8 @@ void smain(inout Surface s, vec3 P, vec3 V) {
     float slick = mix(sl0, sl1, abs(cyc * 2.0 - 1.0));
     float swell = step(0.7, slick) * smoothstep(25.0, 60.0, dist) * uLook2.w;
     v = mix(v, min(v, 0.78), swell);
+    // the obstacles' wakes (engine/scene3d/flow.js): ripple marks in the plate's own tones, a step lighter or darker at most
+    v *= 1.0 + uPileTone * pileT;
     // the steps: four flat values round the reference (the darkest for what darker things mirror, and the swell
     // shapes), anti-aliased over a pixel
     float vw = fwidth(v) * 0.6 + 1e-3;
@@ -287,12 +290,6 @@ void smain(inout Surface s, vec3 P, vec3 V) {
     // W6: the wakes' cusp lines and churn as drawn foam (the plate lightened toward the foam's pale)
     float cw = fwidth(wcusp) + 1e-3;
     col = mix(col, foamC, smoothstep(0.45 - cw, 0.45 + cw, wcusp) * 0.9);
-    // the piles' wake lines (piles.js, events.js pilesAt): the turbulent strip's streaks, the V, the swirls, drawn as the
-    // water roughened, a sixth of the way to foam (uPileLine, ?wpileline=): at full foam every pile in an ebb threw a
-    // carpet of white lines, the water off the pier at blue hour scribbled white (the tour's T4, 31-43 s, B9's read;
-    // ?wpiles=0 took them all; at a third they still read as white scribble)
-    float pw_ = fwidth(pileL) + 1e-3;
-    col = mix(col, foamC, smoothstep(0.45 - pw_, 0.45 + pw_, pileL) * uPileLine);
     // W6 crest lines: the drawn waves' crests as contours (height at +1.15 sigma), 1-2 px, the plate lightened
     float hz = gShapeH / shs, hw = fwidth(hz) * 0.8 + 1e-3;
     // (looking straight down every crest's contour made a mesh: drawn only obliquely; far off, where only the longest

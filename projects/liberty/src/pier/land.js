@@ -1,12 +1,14 @@
 // liberty/src/pier/land.js: the land inside P.WORLD.near (B4): the ground from the terrain grid (assets/terrain/near.f16,
 // USGS 3DEP via Terrain Tiles, on the world's frame), cut at the traced shore (site.js SHORE) by a signed-distance map,
-// the seawall and its railing along the water, the Embarcadero and the city's streets painted from rules (the street
-// grid measured on z18; the Embarcadero's cross-section measured at Pier 35 on z19: promenade 6 m, bike lane, two lanes,
-// a median with the F-line's two tracks, two lanes, parking, the far sidewalk: 38 m), parks from their traced outlines.
+// the seawall and its railing along the water, the Embarcadero painted from its cross-section along its length (site.js
+// EMB.profile: the full section with the F-line's median from Kearny south-east, the narrow road by Pier 39), the city's
+// streets, crosswalks, car parks and street lights' pools from near.js's plan (OSM's streets, their
+// widths fitted to DataSF's building lines), parks from their traced outlines.
 // landAt(x, z) is the land's height for anything standing on it.
 import * as P from '../plan.js';
 import { baked } from 'scene3d/bake.js';
-import { SHORE, FRONTAGE, PARKS, GRID, EMB } from './site.js';
+import { SHORE, FRONTAGE, PARKS, EMB } from './site.js';
+import { loadNear, streetModel, paintFields, NEAR_FILES } from './near.js';
 import { pierMat } from './mats.js';
 import { quads, orient, merge, box, beam } from './geo.js';
 import { lin } from 'scene3d/util.js';
@@ -17,9 +19,10 @@ export const MAP = { x0: -660, z0: -360, size: 1420, res: 2 };
 MAP.n = MAP.size / MAP.res;
 export const SHORE_Y = 2.92;
 // the Embarcadero's lamps (embarcadero.js places them on this spacing and these phases; land.js draws their pools)
-// the city's street lights (cobra heads, 3000 K LED: site.md §7): along every grid street, four to an E-W block and three
-// to a N-S block, alternating sides, at the kerb 7.6 m up (city.js places them; land.js draws their pools)
-export const CITY_LAMP = { h: 7.6, kerb: 2.6, perEW: 4, perNS: 3 };
+// the city's street lights (cobra heads, 3000 K LED: site.md §7): near.js places them along every street, alternating
+// sides, on the sidewalk 0.6 m behind the kerb, the head 7.6 m up on a 1.8 m arm (city.js builds them; land.js draws
+// their pools from the nearest head)
+export const CITY_LAMP = { h: 7.6 };
 export const LAMP_SPACING = 30, LAMP_PROM = { s: 10, e: -16.5, h: 5.0 }, LAMP_STREET = { s: 22, e: 12.8, h: 8.7 };                      // the waterfront's ground (the pier's deck is 2.95: the land meets it a curb lower)
 const NEAR = P.WORLD.near;
 
@@ -87,7 +90,7 @@ function sdfField(poly, lim, edges = null) {
 }
 // the signed distance to the Embarcadero's centreline (+ on the city's side: the right of its west-to-east run)
 function embField() {
-  const n = MAP.n, out = new Float32Array(n * n), arc = new Float32Array(n * n), L = EMB.line, lim = 63;
+  const n = MAP.n, out = new Float32Array(n * n), arc = new Float32Array(n * n), nx = new Float32Array(n * n), L = EMB.line, lim = 63;
   // (arc length from the first point the lamps' path starts at: embarcadero.js shorePath keeps x >= -620)
   const s0 = [0]; for (let k = 1; k < L.length; k++) s0.push(s0[k - 1] + Math.hypot(L[k][0] - L[k - 1][0], L[k][1] - L[k - 1][1]));
   const k0 = L.findIndex(p => p[0] >= -620), base = s0[k0];
@@ -103,22 +106,24 @@ function embField() {
         if (d < best) {
           best = d; sg = ((b[0] - a[0]) * (z - a[1]) - (b[1] - a[1]) * (x - a[0])) > 0 ? 1 : -1;
           const dx = b[0] - a[0], dz = b[1] - a[1], l2 = dx * dx + dz * dz, t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (z - a[1]) * dz) / l2));
-          arc[i * n + j] = s0[k] + t * Math.sqrt(l2) - base;
+          arc[i * n + j] = s0[k] + t * Math.sqrt(l2) - base; nx[i * n + j] = a[0] + t * dx;
         }
       }
       out[i * n + j] = best * sg;
     }
   }
-  return { out, arc };
+  return { out, arc, nx };
 }
-// the map: R the shore (signed metres, + toward the water), G the parks (signed, - inside); 0.5 m a level about 128
-export async function buildMap() {
-  return baked('liberty-pier-landmap', { sources: [import.meta.url, './site.js'], inputs: { MAP, v: 5, LAMP_SPACING } }, () => {
+// the map: px R the shore (signed metres, + toward the water), G the parks (signed, - inside), B the Embarcadero's
+// centreline (0.5 m a level about 128), A the car parks (near.js paintFields); ph R, G the Embarcadero's lamps' phase, B
+// the city's lamps, A the streets' centre lines; st the streets' kerbs, sidewalks, crosswalks and travel lanes (near.js)
+export async function buildMap(SM) {
+  return baked('liberty-pier-landmap', { sources: [import.meta.url, './site.js', './near.js', ...NEAR_FILES], inputs: { MAP, v: 10, LAMP_SPACING } }, () => {
     const shoreEdges = []; for (let i = 0; i < SHORE.length - 1; i++) shoreEdges.push([SHORE[i], SHORE[i + 1]]);
     const shore = sdfField(LAND, 63, shoreEdges);
     const parks = new Float32Array(MAP.n * MAP.n).fill(63);
     for (const poly of Object.values(PARKS)) { const f = sdfField(poly, 63); for (let i = 0; i < f.length; i++) parks[i] = Math.min(parks[i], f[i]); }
-    const { out: emb, arc } = embField();
+    const { out: emb, arc, nx } = embField();
     const px = new Uint8Array(MAP.n * MAP.n * 4), ph = new Uint8Array(MAP.n * MAP.n * 4);
     // the lamps' phase along the Embarcadero (30 m spacing), as its cosine and sine (they filter smoothly)
     for (let i = 0; i < MAP.n * MAP.n; i++) { const a = arc[i] / LAMP_SPACING * Math.PI * 2; ph[i * 4] = Math.round(127.5 + 127.5 * Math.cos(a)); ph[i * 4 + 1] = Math.round(127.5 + 127.5 * Math.sin(a)); ph[i * 4 + 3] = 255; }
@@ -128,7 +133,12 @@ export async function buildMap() {
       px[i * 4 + 2] = Math.max(0, Math.min(255, Math.round(128 + emb[i] * 2)));
       px[i * 4 + 3] = 255;
     }
-    return { px, shore, ph };
+    const st = paintFields(MAP, SM, ph, px);
+    // the Embarcadero's signed distance and its nearest centreline point's x at full precision (half floats: the 0.5 m
+    // steps of px.B drew its lines wavy up close; a distance to a line filters exactly between texels)
+    const ef = new Uint16Array(MAP.n * MAP.n * 2), H = T.DataUtils.toHalfFloat;
+    for (let i = 0; i < MAP.n * MAP.n; i++) { ef[i * 2] = H(emb[i]); ef[i * 2 + 1] = H(nx[i]); }
+    return { px, shore, ph, st, ef };
   });
 }
 
@@ -155,45 +165,39 @@ export function makeLandAt(map) {
 }
 
 // the ground's material: everything painted from the map and the rules (style: flat tones, lines for kerbs and lanes)
-function landMat(world, tex, ph) {
-  const G = GRID;
+function landMat(world, tex, ph, stx, efx) {
+  const EK = EMB.profile;
   return pierMat(world, {
     name: 'land', lamps: false,
     uniforms: {
-      uMap: { value: tex }, uPh: { value: ph }, uLampC: { value: new T.Vector3(...lin('#ffc98a').map(v => v * 1.1)) }, uMapB: { value: new T.Vector3(MAP.x0, MAP.z0, MAP.size) },
-      uGrid: { value: new T.Vector4(G.x0, G.z0, G.px, G.pz) }, uStreet: { value: G.street },
+      uMap: { value: tex }, uPh: { value: ph }, uSt: { value: stx }, uEf: { value: efx },
+      uEK: { value: EK.map(k => new T.Vector4(k[1], k[2], k[3], k[4])) }, uEX: { value: EK.map(k => k[0]) }, uLampC: { value: new T.Vector3(...lin('#ffc98a').map(v => v * 1.1)) }, uMapB: { value: new T.Vector3(MAP.x0, MAP.z0, MAP.size) },
+      uLot: { value: new T.Vector3(...lin('#3d4044')) },
       uAsph: { value: new T.Vector3(...lin('#4a4d52')) }, uWalk: { value: new T.Vector3(...lin('#a8a69e')) }, uGrass: { value: new T.Vector3(...lin('#4f6a3a')) },
       uYard: { value: new T.Vector3(...lin('#8a877d')) }, uBike: { value: new T.Vector3(...lin('#3f7a52')) }, uTrack: { value: new T.Vector3(...lin('#7b776d')) },
     },
     glsl: /* glsl */`
-      uniform sampler2D uMap, uPh; uniform vec3 uMapB; uniform vec4 uGrid; uniform float uStreet; uniform vec3 uLampC;
+      uniform sampler2D uMap, uPh, uSt, uEf; uniform vec3 uMapB; uniform vec3 uLampC, uLot;
+      uniform vec4 uEK[${EK.length}]; uniform float uEX[${EK.length}];
+      // the Embarcadero's cross-section at its nearest centreline point's x (site.js EMB.profile, linear in x)
+      vec4 embProf(float x) {
+        vec4 r = uEK[0];
+        for (int i = 0; i < ${EK.length - 1}; i++) { if (x >= uEX[i] && x <= uEX[i + 1]) r = mix(uEK[i], uEK[i + 1], clamp((x - uEX[i]) / (uEX[i + 1] - uEX[i]), 0.0, 1.0)); }
+        if (x > uEX[${EK.length - 1}]) r = uEK[${EK.length - 1}];
+        return r;
+      }
       float poolBand(float d, float h) { float q = pow(h * h / (h * h + d * d), 1.5); return q > 0.5 ? 1.0 : (q > 0.2 ? 0.6 : (q > 0.07 ? 0.3 : q * 4.0)); }
       uniform vec3 uAsph, uWalk, uGrass, uYard, uBike, uTrack;
-      vec3 mapAt(vec2 xz) { vec4 m = texture2D(uMap, (xz - uMapB.xy) / uMapB.z); return (m.rgb * 255.0 - 128.0) * 0.5; }
       float band(float d, float a, float b) { float w = aaW(d); return smoothstep(a - w, a + w, d) * (1.0 - smoothstep(b - w, b + w, d)); }
+      float sIn(float d) { float w = aaW(d); return 1.0 - smoothstep(-w, w, d); }     // 1 where a signed distance is below 0
     `,
     body: /* glsl */`
-      vec3 m = mapAt(P.xz);
+      vec2 mUV = (P.xz - uMapB.xy) / uMapB.z;
+      vec4 mm = texture2D(uMap, mUV);
+      vec3 m = (mm.rgb * 255.0 - 128.0) * 0.5;
       if (m.x > 0.0) discard;                       // the water's side of the shore
       float d = -m.x;                               // metres inland from the shore (or the bulkheads' street face)
       vec3 c = uYard;
-      // the city's streets: the grid's centrelines, 21 m wide (3 m sidewalks), kerb lines, a yellow centre line, crosswalks
-      vec2 q = (P.xz - uGrid.xy) / uGrid.zw;
-      vec2 off = (fract(q + 0.5) - 0.5) * uGrid.zw;             // metres from the nearest centreline (x: N-S streets, z: E-W)
-      vec2 a = abs(off);
-      float hw = uStreet * 0.5;
-      float onStreet = max(1.0 - step(hw, a.x), 1.0 - step(hw, a.y));
-      float road = max(1.0 - step(hw - 3.0, a.x), 1.0 - step(hw - 3.0, a.y));
-      vec3 street = mix(uWalk, uAsph, road);
-      street *= 1.0 - 0.35 * max(band(a.x, hw - 3.05, hw - 2.95), band(a.y, hw - 3.05, hw - 2.95));         // kerbs
-      // the centre line (yellow) along each street, not across the junctions
-      float cl = band(a.x, 0.0, 0.12) * step(hw, a.y) + band(a.y, 0.0, 0.12) * step(hw, a.x);
-      street = mix(street, vec3(0.75, 0.6, 0.15), cl * 0.8);
-      // crosswalks: white bars where a street meets the junction
-      float zebra = step(hw - 3.0, a.x) * step(a.x, hw + 1.0) * step(a.y, hw - 3.0) * step(0.5, fract(off.y / 1.2));
-      zebra += step(hw - 3.0, a.y) * step(a.y, hw + 1.0) * step(a.x, hw - 3.0) * step(0.5, fract(off.x / 1.2));
-      street = mix(street, vec3(0.82), clamp(zebra, 0.0, 1.0) * 0.85);
-      c = mix(c, street, onStreet);
       // steep ground (the quarried east face of Telegraph Hill, the cuts on its slopes: photo 12's cliff, #363d43 /
       // #74706b / #b1a79d): rock in three flat tones with strata lines, scrub on the ledges
       float steep = smoothstep(0.86, 0.74, s.N.y);
@@ -207,59 +211,65 @@ function landMat(world, tex, ph) {
       float park = 1.0 - smoothstep(-0.5, 0.5, m.y);
       vec3 grass = uGrass * (0.85 + 0.25 * step(0.0, vnoise(P.xz * 0.15)));
       float path = band(abs(vnoise(P.xz * 0.02) ), 0.0, 0.04);
-      c = mix(c, mix(grass, uWalk * 0.9, path), park * (1.0 - onStreet * 0.0));
-      // the Embarcadero by its centreline (e: signed metres, + toward the city): the median with the F-line's tracks
-      // |e| < 4.5, two lanes each side to 16.5, a bike lane on the water side, the promenade from there to the shore,
-      // the city side's sidewalk to 21.5
-      float e = m.z;
-      if (abs(e) < 19.0 || (e < 0.0 && d < 40.0)) {
-        float ae = abs(e);
+      c = mix(c, mix(grass, uWalk * 0.9, path), park);
+      // the car parks (OSM's, at grade): sealed asphalt, its edge
+      float dL = (mm.a * 255.0 - 128.0) * 0.1;
+      c = mix(c, uLot * (1.0 - 0.3 * band(dL, -0.25, 0.0)), sIn(dL));
+      // the streets (near.js's plan): dK the kerb, dB the sidewalk's back, dX the crosswalks, dC the signed distance to the
+      // roadway's centre line (its code: two-way streets about 64, others about 191, 255 none: a junction's box)
+      vec4 sq = texture2D(uSt, mUV), pq = texture2D(uPh, mUV);
+      float dK = (sq.r * 255.0 - 128.0) * 0.1, dB = (sq.g * 255.0 - 128.0) * 0.1, dX = (sq.b * 255.0 - 128.0) * 0.05;
+      float cE = pq.a * 255.0, twoWay = 1.0 - step(127.5, cE), noLine = step(254.5, cE), dC = (cE - mix(191.0, 64.0, twoWay)) * 0.15;
+      float onStreet = sIn(dB), road = sIn(dK);
+      vec3 street = mix(uWalk * (0.96 + 0.04 * step(0.5, fract((P.x + P.z) * 0.33))), uAsph, road);
+      street *= 1.0 - 0.35 * band(dK, -0.06, 0.1);                                      // the kerb
+      street = mix(street, vec3(0.75, 0.6, 0.15), band(abs(dC), -1.0, 0.12) * twoWay * (1.0 - noLine) * road * step(0.0, dX) * 0.8);   // the centre line
+      street = mix(street, vec3(0.82), sIn(dX) * road * (1.0 - noLine) * step(0.5, fract(dC / 1.2)) * 0.85);                   // the crosswalks' bars
+      c = mix(c, street, onStreet);
+      // the Embarcadero by its centreline (e: signed metres, + toward the city) and its cross-section there (embProf: the
+      // road's middle ec off the line, its kerbs hb, hc from it, the median's half-width md; site.js EMB.profile): the median with
+      // the F-line's tracks, the lanes each side, a bike lane inside the bay kerb and parking inside the city kerb where
+      // there's room, a double yellow line where there's no median; the promenade from the bay kerb to the water, the
+      // city side's sidewalk 5.5 m
+      vec2 en = texture2D(uEf, mUV).rg;                 // (the signed distance and the nearest point's x, half floats)
+      float e = en.x; vec4 pr = embProf(en.y); float ec = pr.x, hbk = pr.y, hck = pr.z, md = pr.w;
+      float ep = e - ec, aep = abs(ep), hk = ep < 0.0 ? hbk : hck;
+      if (aep < hk + 5.5 || (ep < 0.0 && d < 60.0)) {
+        float exB = clamp(hbk - md - 7.0, 0.0, 2.0), exC = clamp(hck - md - 7.0, 0.0, 2.0), tk = md > 3.0 ? 2.2 : 0.0, hasMed = step(0.1, md);
         vec3 E = uWalk * (0.95 + 0.05 * step(0.5, fract(P.x * 0.5 + P.z * 0.5)));
-        float lanes = band(ae, 4.5, 13.5);
+        float lanes = band(aep, md, hk);
         E = mix(E, uAsph, lanes);
-        E = mix(E, uBike, band(e, -13.5, -11.5));
-        E = mix(E, uTrack, 1.0 - step(4.5, ae));
+        E = mix(E, uBike, band(ep, -hbk, -hbk + exB) * step(0.1, exB));
+        E = mix(E, uTrack, (1.0 - step(md, aep)) * hasMed);
+        float le = ep < 0.0 ? hbk - exB : hck - exC, mid = (md + le) * 0.5;
         float dash = step(0.55, fract((P.x * 0.83 + P.z * 0.56) / 9.0));
-        E = mix(E, vec3(0.85), band(ae, 7.95, 8.05) * dash);
-        E = mix(E, vec3(0.85), band(e, 11.45, 11.55));
-        E *= 1.0 - 0.45 * (band(ae, 4.45, 4.6) + band(ae, 13.4, 13.6));
+        E = mix(E, vec3(0.85), band(aep, mid - 0.05, mid + 0.05) * dash * lanes);
+        E = mix(E, vec3(0.85), band(ep, hck - exC - 0.05, hck - exC + 0.05) * step(0.1, exC));
+        E = mix(E, vec3(0.75, 0.6, 0.15), clamp(band(ep, -0.2, -0.08) + band(ep, 0.08, 0.2), 0.0, 1.0) * (1.0 - hasMed) * 0.85);
+        E *= 1.0 - 0.45 * clamp(band(aep, md - 0.05, md + 0.1) * hasMed + band(aep, hk - 0.1, hk + 0.1), 0.0, 1.0);
         float rl = 0.0;
-        for (int k = 0; k < 2; k++) { float tc = (float(k) * 2.0 - 1.0) * 2.2; rl += band(e, tc - 0.75, tc - 0.68) + band(e, tc + 0.68, tc + 0.75); }
-        E = mix(E, vec3(0.2, 0.2, 0.21), clamp(rl, 0.0, 1.0) * 0.9);
+        for (int k = 0; k < 2; k++) { float tc = (float(k) * 2.0 - 1.0) * tk; rl += band(ep, tc - 0.75, tc - 0.68) + band(ep, tc + 0.68, tc + 0.75); }
+        E = mix(E, vec3(0.2, 0.2, 0.21), clamp(rl, 0.0, 1.0) * 0.9 * step(0.1, tk));
         // the promenade's edge stone at the water
         E *= 1.0 - 0.12 * band(d, 0.0, 0.5);
-        c = mix(c, E, clamp((1.0 - smoothstep(18.5, 19.0, ae)) + step(e, -13.5) * (1.0 - smoothstep(38.0, 40.0, d)), 0.0, 1.0));
+        c = mix(c, E, clamp((1.0 - smoothstep(hk + 5.0, hk + 5.5, aep)) + step(ep, -hbk) * (1.0 - smoothstep(58.0, 60.0, d)), 0.0, 1.0));     // (the promenade: the kerb to the water, 17-40 m by the bulkheads)
       }
       // wear: a slow mottling, tyre-darkened lanes, oil spots on the asphalt
       c *= 0.92 + 0.08 * step(0.0, vnoise(P.xz * 0.05) + 0.5 * vnoise(P.xz * 0.11));     // (two octaves: the land fills the frame from the hill)
       s.albedo = c; s.rough = 0.85;
       // the Embarcadero's lamps' pools (3000 K): the promenade's globes and the far side's street lights
       float nightK = smoothstep(0.15, 0.55, uNight);
-      if (nightK > 0.0 && abs(e) < 30.0) {
+      if (nightK > 0.0 && aep < 32.0) {
         vec2 cs = texture2D(uPh, (P.xz - uMapB.xy) / uMapB.z).rg * 2.0 - 1.0;
         float sp = fract(atan(cs.y, cs.x) / 6.2831853) * ${LAMP_SPACING.toFixed(1)};
-        float d1 = length(vec2(fract((sp - ${LAMP_PROM.s.toFixed(1)}) / ${LAMP_SPACING.toFixed(1)} + 0.5) * ${LAMP_SPACING.toFixed(1)} - ${(LAMP_SPACING / 2).toFixed(1)}, e - (${LAMP_PROM.e.toFixed(1)})));
-        float d2 = length(vec2(fract((sp - ${LAMP_STREET.s.toFixed(1)}) / ${LAMP_SPACING.toFixed(1)} + 0.5) * ${LAMP_SPACING.toFixed(1)} - ${(LAMP_SPACING / 2).toFixed(1)}, e - ${LAMP_STREET.e.toFixed(1)}));
+        float d1 = length(vec2(fract((sp - ${LAMP_PROM.s.toFixed(1)}) / ${LAMP_SPACING.toFixed(1)} + 0.5) * ${LAMP_SPACING.toFixed(1)} - ${(LAMP_SPACING / 2).toFixed(1)}, ep - (-hbk - 3.0)));
+        float d2 = length(vec2(fract((sp - ${LAMP_STREET.s.toFixed(1)}) / ${LAMP_SPACING.toFixed(1)} + 0.5) * ${LAMP_SPACING.toFixed(1)} - ${(LAMP_SPACING / 2).toFixed(1)}, ep - (hck - 0.7)));
         float pool = max(poolBand(d1, ${LAMP_PROM.h.toFixed(1)}) * 0.8, poolBand(d2, ${LAMP_STREET.h.toFixed(1)}));
         s.emissive += c * uLampC * pool * nightK;
       }
-      // the city's street lights: on the streets past the Embarcadero, the two nearest lamps along the street (alternate sides)
-      if (nightK > 0.0 && d > 40.0 && onStreet > 0.5) {
-        float best = 0.0;
-        for (int ax = 0; ax < 2; ax++) {
-          // ax 0: an E-W street (the lamps along x); ax 1: a N-S street (along z)
-          float acr = ax == 0 ? off.y : off.x, al = ax == 0 ? P.x - uGrid.x : P.z - uGrid.y;
-          if (abs(acr) > hw) continue;
-          float sp = ax == 0 ? uGrid.z / ${(4).toFixed(1)} : uGrid.w / ${(3).toFixed(1)};
-          float k0 = floor((al - sp * 0.5) / sp);
-          for (int j = 0; j < 2; j++) {
-            float k = k0 + float(j), t = (k + 0.5) * sp, side = mod(k, 2.0) < 0.5 ? 1.0 : -1.0;
-            float dd = length(vec2(al - t, acr - side * (hw - ${(2.6).toFixed(1)})));
-            best = max(best, poolBand(dd, ${(7.6).toFixed(1)}));
-          }
-        }
-        s.emissive += c * uLampC * best * 0.9 * nightK;
-      }
+      // the city's street lights (near.js: the nearest head's distance)
+      float dl = pq.b * 255.0 * 0.25;
+      if (nightK > 0.0 && dl < 40.0) s.emissive += c * uLampC * poolBand(dl, ${CITY_LAMP.h.toFixed(1)}) * 0.9 * nightK;
     `,
   });
 }
@@ -267,13 +277,18 @@ function landMat(world, tex, ph) {
 export async function buildLand(world, M, out) {
   const t0 = performance.now();
   await loadDEM();
-  const map = await buildMap();
+  const near = await loadNear(), SM = streetModel(near);
+  const map = await buildMap(SM);
   const landAt = makeLandAt(map);
   const tex = new T.DataTexture(map.px, MAP.n, MAP.n, T.RGBAFormat, T.UnsignedByteType);
   tex.magFilter = T.LinearFilter; tex.minFilter = T.LinearFilter; tex.needsUpdate = true;
   const ph = new T.DataTexture(map.ph, MAP.n, MAP.n, T.RGBAFormat, T.UnsignedByteType);
   ph.magFilter = T.LinearFilter; ph.minFilter = T.LinearFilter; ph.needsUpdate = true;
-  const mat = landMat(world, tex, ph);
+  const stx = new T.DataTexture(map.st, MAP.n, MAP.n, T.RGBAFormat, T.UnsignedByteType);
+  stx.magFilter = T.LinearFilter; stx.minFilter = T.LinearFilter; stx.needsUpdate = true;
+  const efx = new T.DataTexture(map.ef, MAP.n, MAP.n, T.RGFormat, T.HalfFloatType);
+  efx.magFilter = T.LinearFilter; efx.minFilter = T.LinearFilter; efx.needsUpdate = true;
+  const mat = landMat(world, tex, ph, stx, efx);
   // the ground mesh: an 8 m grid over the land's box inside the near box (the far view's builder owns beyond it)
   const st = 8, xa = NEAR.x0, xb = NEAR.x1, za = -100, zb = NEAR.z1;
   const nx = Math.round((xb - xa) / st), nz = Math.round((zb - za) / st);
@@ -292,6 +307,13 @@ export async function buildLand(world, M, out) {
     if (landAt.shore(xs, zs) > 12 && landAt.shore(xs + st, zs) > 12 && landAt.shore(xs, zs + st) > 12 && landAt.shore(xs + st, zs + st) > 12) continue;
     idx.push(a, c, b, b, c, d);
   }
+  // the ground mesh's own surface (its triangles, split b-c as drawn): for what stands on it, between its 8 m vertices
+  // landAt's curve and the drawn triangles part by up to ~0.2 m on the hill
+  landAt.mesh = (x, z) => {
+    const fx = (x - xa) / st, fz = (z - za) / st, j = Math.max(0, Math.min(nx - 1, Math.floor(fx))), i = Math.max(0, Math.min(nz - 1, Math.floor(fz)));
+    const u = fx - j, v = fz - i, A = hs[i * (nx + 1) + j], B = hs[i * (nx + 1) + j + 1], Cc = hs[(i + 1) * (nx + 1) + j], D = hs[(i + 1) * (nx + 1) + j + 1];
+    return u + v <= 1 ? A + (B - A) * u + (Cc - A) * v : D + (Cc - D) * (1 - u) + (B - D) * (1 - v);
+  };
   const g = new T.BufferGeometry();
   g.setAttribute('position', new T.BufferAttribute(pos, 3)); g.setAttribute('uv', new T.BufferAttribute(uv, 2));
   g.setAttribute('aSeed', new T.BufferAttribute(new Float32Array(hs.length).fill(0.5), 1));
@@ -316,6 +338,6 @@ export async function buildLand(world, M, out) {
   world.mesh(quads(wall, 0.3), M.pile, { name: 'land:seawall' });
   world.mesh(merge(cap), M.flat('seawall cap', '#b3b0a6'), { name: 'land:seawall cap' });
   world.mesh(merge(rails), M.flat('railing', '#3f4a46', { spec: 0.2, rough: 0.5 }), { name: 'land:railing' });
-  out.land = { landAt, ground, tris: idx.length / 3, ms: performance.now() - t0 };
+  out.land = { landAt, ground, SM, tris: idx.length / 3, ms: performance.now() - t0 };
   return out.land;
 }

@@ -72,7 +72,30 @@ export function bar(a, b, w, h, seed = 0.5, side = null) {
   return boxM(w, L, h, mul(along(a, d, side), tr(0, L / 2, 0)), seed);
 }
 // a round section swept along a path (rails, pipes, ropes); closed paths for rings
+export const STATS = { tubeTris: 0, filleted: 0 };
+// round a path's sharp corners (> 20 deg) with a short bend, radius ~2.5x the tube's (at most 40 % of either segment):
+// a tube's rings at a sharp corner cross each other and turn faces inside out (the winches' steam pipes did)
+export function fillet(path, rad, ns = 6) {
+  if (path.length < 3) return path;
+  const out = [path[0]];
+  for (let i = 1; i < path.length - 1; i++) {
+    const p = V3(...path[i]), a = V3(...path[i - 1]), b = V3(...path[i + 1]);
+    const d0 = p.clone().sub(a), d1 = b.clone().sub(p), l0 = d0.length(), l1 = d1.length();
+    if (l0 < 1e-6 || l1 < 1e-6) { out.push(path[i]); continue; }
+    d0.divideScalar(l0); d1.divideScalar(l1);
+    const ang = Math.acos(Math.max(-1, Math.min(1, d0.dot(d1))));
+    if (ang < 20 * Math.PI / 180) { out.push(path[i]); continue; }
+    const t = Math.min(rad * Math.tan(ang / 2), 0.4 * l0, 0.4 * l1);
+    const q0 = p.clone().addScaledVector(d0, -t), q1 = p.clone().addScaledVector(d1, t);
+    for (let k = 0; k <= ns; k++) { const u = k / ns, w0 = (1 - u) * (1 - u), w1 = 2 * u * (1 - u), w2 = u * u; out.push([q0.x * w0 + p.x * w1 + q1.x * w2, q0.y * w0 + p.y * w1 + q1.y * w2, q0.z * w0 + p.z * w1 + q1.z * w2]); }
+    STATS.filleted++;
+  }
+  out.push(path[path.length - 1]);
+  return out;
+}
 export function tube(path, r, { sides = 8, seed = 0.5, closed = false, caps = true } = {}) {
+  path = path.filter((p, i) => i === 0 || Math.hypot(p[0] - path[i - 1][0], p[1] - path[i - 1][1], p[2] - path[i - 1][2]) > 1e-4);    // (no doubled points)
+  if (!closed && typeof r === 'number') path = fillet(path, Math.max(2.5 * r, 0.02), r < 0.015 ? 3 : 6);    // (a thin wire's bend needs few rings to stay outside in)
   const n = path.length, P = path.map(p => V3(...p)), pos = [], nrm = [], uv = [], idx = [];
   const rr = typeof r === 'function' ? r : () => r;           // (a radius that varies along the path: a cowl's flare)
   // parallel transport frames (no flips where a path turns vertical)
@@ -96,13 +119,15 @@ export function tube(path, r, { sides = 8, seed = 0.5, closed = false, caps = tr
     }
   }
   for (let i = 0; i < n - 1; i++) for (let k = 0; k < sides; k++) {
+    // (wound so each face's front is outward, as the normals are: the first tubes were wound inward, so a thick one
+    // showed its far wall's inside through its culled near wall and read as cut open at its ends: the cowls' trunks)
     const a = i * (sides + 1) + k, b = a + sides + 1;
-    idx.push(a, b, a + 1, a + 1, b, b + 1);
+    idx.push(a, a + 1, b, a + 1, b + 1, b);
   }
   const g = new T.BufferGeometry();
   g.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new T.Float32BufferAttribute(nrm, 3));
   g.setAttribute('uv', new T.Float32BufferAttribute(uv, 2)); g.setIndex(idx);
-  seedAttr(g, seed);
+  seedAttr(g, seed); STATS.tubeTris += idx.length / 3;
   if (!caps || closed) return g;
   return merge([g, disc(path[0], [-Ts[0].x, -Ts[0].y, -Ts[0].z], rr(0), sides, seed), disc(path[n - 1], [Ts[n - 1].x, Ts[n - 1].y, Ts[n - 1].z], rr(1), sides, seed)]);
 }
@@ -158,6 +183,23 @@ export function catenary(a, b, H, w, n = 16) {
   return { pts: out, sag, a: c, L, Tmax: H * Math.max(Math.cosh(-x0 / c), Math.cosh((L - x0) / c)) };
 }
 
+// drop zero-area triangles from an indexed geometry (the crisp edges' doubled lathe points and the caps' poles leave
+// strips of them: drawn, never seen) -> how many were dropped
+export function dropDegenerate(g) {
+  if (!g.index) return 0;
+  const p = g.attributes.position.array, ix = g.index.array, keep = [];
+  for (let k = 0; k < ix.length; k += 3) {
+    const a = ix[k] * 3, b = ix[k + 1] * 3, c = ix[k + 2] * 3;
+    const ux = p[b] - p[a], uy = p[b + 1] - p[a + 1], uz = p[b + 2] - p[a + 2], vx = p[c] - p[a], vy = p[c + 1] - p[a + 1], vz = p[c + 2] - p[a + 2];
+    const cx = uy * vz - uz * vy, cy = uz * vx - ux * vz, cz = ux * vy - uy * vx;
+    if (cx * cx + cy * cy + cz * cz > 1e-16) keep.push(ix[k], ix[k + 1], ix[k + 2]);
+  }
+  const dropped = ix.length / 3 - keep.length / 3;
+  if (dropped) g.setIndex(new T.BufferAttribute(new Uint32Array(keep), 1));
+  return dropped;
+}
+STATS.degenerate = 0;
+
 // ---- geometry gathered per material, merged and baked into the world through the ship's trim (one draw per material)
 const KEYS = new WeakMap(); let NK = 0;
 export class Bins {
@@ -181,7 +223,7 @@ export class Bins {
       let chunk = [], nv = 0;
       const emit = () => {
         if (!chunk.length) return;
-        const g = merge(chunk); if (m) g.applyMatrix4(m); g.computeBoundingSphere(); g.computeBoundingBox();
+        const g = merge(chunk); if (m) g.applyMatrix4(m); STATS.degenerate += dropDegenerate(g); g.computeBoundingSphere(); g.computeBoundingBox();
         const fl = Object.assign({}, b.flags); delete fl.key;
         const mesh = this.world.mesh(g, b.mat, fl); mesh.name = `${this.name}:${b.mat.name}${b.flags.key ? ':' + b.flags.key : ''}`;
         this.meshes.push(mesh); out.push(mesh); chunk = []; nv = 0;
@@ -197,7 +239,7 @@ export class Bins {
 
 // a moving part: geometries merged into one mesh whose matrix the caller sets each frame (in the world: SHIP.matrix x local)
 export function partMesh(world, geos, mat, name, flags = {}) {
-  const g = merge(geos.filter(Boolean)); g.computeBoundingSphere(); g.computeBoundingBox();
+  const g = merge(geos.filter(Boolean)); STATS.degenerate += dropDegenerate(g); g.computeBoundingSphere(); g.computeBoundingBox();
   const m = world.mesh(g, mat, flags); m.name = name; m.matrixAutoUpdate = false;
   return m;
 }

@@ -411,7 +411,7 @@ function hookGeo(top) {
   const hook = [[x, y - 0.8, z], [x, y - 0.95, z]];
   for (let k = 1; k <= 10; k++) { const a = Math.PI + k / 10 * 1.3 * Math.PI; hook.push([x + 0.09 + Math.cos(a) * 0.09, y - 0.95 + Math.sin(a) * 0.09, z]); }
   const steel = mergeG([cyl([x, y + 0.02, z], [x, y - 0.31, z], 0.035, 0.035, { sides: 8 }), lath([[0, 0], [0.06, 0], [0.06, 0.1], [0, 0.13]], 10).applyMatrix4(tr(x, y - 0.81, z)),
-    tube(hook, 0.024, { sides: 6 })]);
+    tube(hook, 0.024, { sides: 5 })]);
   const ball = lath([[0, 0], [0.12, 0.04], [0.17, 0.2], [0.12, 0.36], [0, 0.4]], 14, { hard: false }).applyMatrix4(tr(x, y - 0.7, z));
   return { steel, ball };
 }

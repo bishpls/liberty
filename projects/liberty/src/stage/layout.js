@@ -32,7 +32,7 @@ export function shipGround(P, hull) {
 
 export function makeLayout(P, G, deck = null) {
   const S = P.SHIP, ST = P.STAGE, F = ST.floor;
-  const L = { F, FT, IN };
+  const L = { F, FT, IN, G };          // (G: the ship's surfaces, for the pyro clearances and the measures)
   // her deck's half-breadth at a world z (the plan's line: what a foot, a tote, a sole board must stay inside)
   L.halfAt = z => S.halfAt(S.fromWorld(0, 0, z)[2]);
   // ---- the decks (show.md S2: 4 x 8 ft platforms, 7/8 in ply on an aluminium frame), 9 rows of 4 ft from the lip
@@ -162,16 +162,27 @@ export function makeLayout(P, G, deck = null) {
   const deckAt = (x, z) => G.footY(x, z);
   const halfAt = z => S.halfAt(S.fromWorld(0, 0, z)[2]);
   // gerbs: 'rail' a line on deck stands 1.6 m inboard of the starboard bulwark, bow to stern (skipping the stage and
-  // the house); 'stage' four at the lip's corners and ends; 'mast' three on each of the fore and main crosstrees
+  // the house); 'mast' two on each of the fore and main crosstrees. Where a spray passed through solid geometry
+  // (clearance.js, every build) the unit is nudged the least that clears it: the bow's out from under the forecastle's
+  // overhang, No. 1's off the starboard pillbox (its platform over the spray), the stage's aft one out from under the
+  // stage-right IMAG face and clear of its goalpost; the main's out along its crosstree past our beams (their sprays
+  // lean outboard). (The lip's 'stage' line is gone: no cue ever fired it.)
   const railZ = [-58, -52, -46, -40.5, -18.2, -12.5, 22, 28, 34, 40, 46];
+  const railAt = { '-58': [5.0, -56.5], '-46': [7.5, -42.6], '-40.5': [7.5, -40.5], '-18.2': [7.75, -15.0] };
   L.gerbs = {
-    rail: railZ.map(z => { const x = halfAt(z) - 1.6; return { pos: [x, deckAt(x, z) + 0.45, z], dir: [0.06, 1, 0] }; }),
-    stage: [L.deck.z0 + 0.25, L.deck.z0 + 2.6, L.deck.z1 - 2.6, L.deck.z1 - 0.25].map(z => ({ pos: [L.lip - 0.25, F + 0.12, z], dir: [0.05, 1, 0] })),
-    mast: Object.entries(L.crosstree).flatMap(([nm, c]) => (nm === 'fore' ? [-2.35, 2.35] : [-0.75, 0.75]).map(x => ({ pos: [x, c.y + 0.06, c.z], dir: [Math.sign(x) * 0.16, 1, 0] }))),
+    rail: railZ.map(z => { const [x, zz] = railAt[z] || [halfAt(z) - 1.6, z]; return { pos: [x, deckAt(x, zz) + 0.45, zz], dir: [0.06, 1, 0] }; }),
+    stage: [],
+    mast: Object.entries(L.crosstree).flatMap(([nm, c]) => (nm === 'fore' ? [-2.35, 2.35] : [-1.65, 1.65]).map(x => ({ pos: [x, c.y + 0.06, c.z], dir: [Math.sign(x) * 0.16, 1, 0] }))),
   };
-  // flame projectors (P1: Le Maitre Salamander; 2 m clear round, 8 m up): eight on deck along the starboard side, four
-  // forward and four aft of the stage, 2.4 m inboard of the bulwark (the apron's crowd 4.5 m+ away below)
-  L.flames = [-36.6, -40.4, -44.6, -48.8, -19.7, -15.2, -11.3, -7.4].map((z, k) => { const x = halfAt(z) - 2.4; return { k, pos: [x, deckAt(x, z) + 0.22, z] }; });
+  // flame projectors (P1: Le Maitre Salamander): eight on deck along the starboard side, four forward and four aft of
+  // the stage, 2.4 m inboard of the bulwark (the apron's crowd 4.5 m+ away below), each nudged the least that keeps its
+  // column out of solid geometry (clearance.js), every one on the rail (the integrator: a concert's flames are for the
+  // crowd on the apron, and inboard of the goalposts the bulwark hid them): the pair by the stage stood under the IMAG
+  // faces, so the forward one steps past the goalpost to the foremast's rail and the aft four close up on the clear
+  // rail between No. 3's winch and the boat deck's overhang (2 m apart); No. 1's two stood under the starboard pillbox's
+  // platform and step forward of it. The 'n 4' cues fire the nearest two a side (0, 1, 4, 5)
+  const flameAt = [[6.75, -40.4], [6.75, -42.4], [6.5, -50.5], [6.25, -53.25], [6.5, -13.2], [6.5, -11.2], [6.5, -9.2], [6.5, -7.2]];
+  L.flames = flameAt.map(([x0, z], k) => { const x = x0 === null ? halfAt(z) - 2.4 : x0; return { k, pos: [x, deckAt(x, z) + 0.22, z] }; });
   // comets (P5): three tubes on No. 1's cover and three on No. 3's, a fan
   L.comets = [[-1.4, -49.5], [0, -49.5], [1.4, -49.5], [-1.4, -9.6], [0, -9.6], [1.4, -9.6]].map(([x, z], k) => ({ k, pos: [x, deckAt(x, z) + 0.3, z], dir: [x * 0.07 + 0.08, 1, (k % 3 - 1) * 0.05] }));
   // CO2 jets (P7): the lip's two corners and the two upstage corners (aimed up, a touch out), and one on each mast-house top

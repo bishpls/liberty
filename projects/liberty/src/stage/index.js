@@ -19,6 +19,7 @@ import { makeGuns } from './guns.js';
 import { makeStageMeasures } from './measure.js';
 import { buildDress } from './dress.js';
 import { DARK } from './cues.js';
+import { effectCollisions } from './clearance.js';
 
 const T = window.THREE;
 const q = new URLSearchParams(location.search);
@@ -111,18 +112,23 @@ export async function build(world, ctx) {
     inputs: { stops: stopKey, wind: windOf(P), cannons: L.confetti, hullTop: !!(hull && hull.topAt) } }, () => confettiLanding(L, ctx, world.stage, windOf(P)));
   const pyro = makePyro(world, L, ctx, F, landing);
   const guns = makeGuns(world, L, ctx, F, pyro.wind);
+  F.setWind(pyro.wind);                    // (the smoke's tails draw out downwind)
   world.onFrame(t => { F.begin(); if (!DARK) { pyro.draw(t); guns.draw(t); lasers.spotsAt(t, F); } F.end(); });
   // the haze: a thin residue before the show; the hazers start with the house to half and fill it over the intro
   world.onFrame(t => { world.stage.haze.density = 0.010 + 0.020 * rig.cues.house(t).haze; });
   const sounds = pyro.sounds.concat(guns.sounds).sort((a, b) => a.t - b.t);
   const dress = buildDress(world, M, L, ctx);
+  // the pyro's visual collisions (clearance.js): no flame column or gerb spray through solid geometry; 0 on every build
+  const clear = effectCollisions(world, L);
+  if (clear.collisions) console.warn(`[stage] pyro: ${clear.collisions} effect volume(s) through solid geometry:`, clear.units.filter(u => !u.ok).map(u => `${u.name}: ${u.hits.join(', ')}`).join(' | '));
 
   const marks = {};
   for (const [k, m] of Object.entries(L.marks)) marks[k] = { pos: m.pos.map(v => +v.toFixed(3)), face: m.face.map(v => +v.toFixed(3)) };
   const measures = {
     deck: { x: [+L.deck.x0.toFixed(2), L.deck.x1], z: [+L.deck.z0.toFixed(2), +L.deck.z1.toFixed(2)], floor: L.F, platforms: st.counts.platforms,
       legs: { n: st.legs.length, min: Math.min(...st.legs), max: Math.max(...st.legs) }, source: 'show.md S2: 4 x 8 ft platforms, legs 28-48 in (0.71-1.22 m) or scaffold' },
-    stairs: st.stairs, towers: st.towers, grid: st.grid, pa: st.pa, barge: st.barge, cases: st.cases, cables: st.cables, extinguishers: st.extinguishers,
+    pyroClear: { collisions: clear.collisions, ms: clear.ms, rule: clear.rule, env: clear.envKey, glancing: clear.units.filter(u => u.glancing.length).map(u => u.name + ': ' + u.glancing.join(', ')) },
+    stairs: st.stairs, towers: st.towers, imag: st.imag, grid: st.grid, pa: st.pa, barge: st.barge, cases: st.cases, cables: st.cables, extinguishers: st.extinguishers,
     tris: { structure: st.tris, byMaterial: st.counts },
     buildMs: +(performance.now() - t0).toFixed(0), proxy: !!proxy,
   };

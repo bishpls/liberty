@@ -122,7 +122,7 @@ const TOUR = [
   // nearest the stage), the rail gerbs (8 s), the deck mortars on No. 1's cover (7.6 m clearance kept: show.md P8)
   { name: 'T11 the drop', dur: 8.0, hour: NIGHT, tScene: 374.4, payoff: 6.5,
     cam: keyed([{ t: 0, pos: [-5.6, 12.5, -47.0], at: [6.3, 13.4, -43.5], lens: 28 }, { t: 6.5, pos: [-5.6, 12.5, -41.5], at: [6.3, 13.6, -39.0], lens: 28 }], { p: CAM.P.scurve(0.35, 0.45) }),
-    subjects: () => ({ flames: [[5.6, 9.8, -41.2], [7.0, 14.5, -35.8]] }) },          // (the two units seen past the pillbox)
+    subjects: () => ({ flames: [[6.25, 9.8, -43.0], [7.75, 14.5, -39.9]] }) },        // (flames 0 and 1 on the rail with their gerbs outboard: B5's a6711a242)
   // T12. The Oerlikons: on her house, the after port 20 mm fires its eight rounds up over her port side (gun20 guns 4-7
   // at 404.79-405.72), the smoke trailing off downwind; the rig goes to the break's blue pillars (405.73)
   { name: 'T12 the Oerlikons', dur: 5.0, hour: NIGHT, tScene: 403.8, move: 0, payoff: 1.92,

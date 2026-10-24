@@ -53,8 +53,11 @@ void main() {
   // the churn: the wakes' foam strip broken into patches (W6)
   float ch = wk.w * (0.55 + 0.3 * vnoise(P.xz * 0.28 + uTime * 0.05) + 0.15 * vnoise(P.xz * 0.9 - uTime * 0.1)), chw = fwidth(ch) + 1e-3;
   float foam = max(saturate(efoam) * uLook2.z, smoothstep(0.5 - chw, 0.5 + chw, ch) * 0.85);
-  float pline, pfoam = pilesAt(P.xz, envAt(P.xz).gb, fp, pline);   // (the piles in the ebb: piles.js)
-  foam = max(foam, pfoam); if (pline > wcusp) wcusp = -pline;   // (a pile's wake line: negative, drawn lighter than foam, shade.js)
+  // the obstacles' wakes in the current (engine/scene3d/flow.js: the piles, the hull's ends, the barge): their slopes and
+  // roughness join the sea's (the reflection breaks up in them), their marks' tone rides the cusp channel (-3..-1)
+  float ftone, fvar; vec2 fsl; float pfoam = flowWake(P.xz, fp, uTime, ftone, fsl, fvar);
+  sl += fsl; uvar += fvar;
+  foam = max(foam, pfoam); if (abs(ftone) > 0.004 && wcusp < 0.05) wcusp = -(2.0 + ftone);
   float code = gRingLine > 0.004 ? 1.0 + saturate(gRingLine) : foam;
   oS0 = vec4(sl, uvar, rvar);
   oS1 = vec4(gShape, gShapeH, gShapeVar);

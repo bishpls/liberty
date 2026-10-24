@@ -182,7 +182,8 @@ void smain(inout Surface s, vec3 P, vec3 V) {
     const faces = [];
     for (let k = 0; k < 4; k++) {
       const ang = -a + k * Math.PI / 2, dx = Math.sin(ang), dz = Math.cos(ang);
-      const d = new T.CircleGeometry(3.35, 24); d.rotateY(ang); d.translate(tc[0] + dx * 5.75, y0 + 52, tc[1] + dz * 5.75); faces.push(d);
+      // (a dial 0.3 m deep set into the stage's 11.4 m wall: its face 0.15 m proud)
+      const d = new T.CylinderGeometry(3.35, 3.35, 0.3, 24); d.rotateX(Math.PI / 2); d.rotateY(ang); d.translate(tc[0] + dx * 5.7, y0 + 52, tc[1] + dz * 5.7); faces.push(d);
     }
     const fm = world.mat({ name: 'ferry clock faces', lines: 0, defines: { SPOTS: 0 }, surface: 'void smain(inout Surface s, vec3 P, vec3 V) { s.albedo = vec3(0.8, 0.78, 0.7); s.emissive = vec3(1.0, 0.95, 0.82) * 1.6 * smoothstep(0.1, 0.5, uNight); }' });
     world.mesh(merge(faces), fm, { name: 'landmark:ferry building clocks', cast: false });
@@ -202,7 +203,8 @@ void smain(inout Surface s, vec3 P, vec3 V) {
     L.fixed.add(M.light[0], focal, M.light[1], LIGHT_COL.amber, 0.25, { size: 0.8, minPx: 1.2, on: 0.2 });
     // the water tower on its legs, the power house's chimney
     const gw = hAt(M.water[0], M.water[1]), wt = [];
-    for (const [dx, dz] of [[-3, -3], [3, -3], [3, 3], [-3, 3]]) wt.push(beam([M.water[0] + dx, gw, M.water[1] + dz], [M.water[0] + dx * 0.8, gw + 20, M.water[1] + dz * 0.8], 0.5, 0.5));
+    // (the legs footed into the slope, their heads into the tank's floor)
+    for (const [dx, dz] of [[-3, -3], [3, -3], [3, 3], [-3, 3]]) wt.push(beam([M.water[0] + dx, hAt(M.water[0] + dx, M.water[1] + dz) - 1.0, M.water[1] + dz], [M.water[0] + dx * 0.8, gw + 20.6, M.water[1] + dz * 0.8], 0.5, 0.5));
     const tank = lathe([[0.1, 0], [4.6, 0.2], [4.6, 7.0], [3.6, 8.2], [0.1, 8.6]], 16); tank.translate(M.water[0], gw + 20, M.water[1]); wt.push(tank);
     const gc = hAt(M.chimney[0], M.chimney[1]);
     const ch = lathe([[1.6, 0], [1.3, 28], [1.4, 29]], 10); ch.translate(M.chimney[0], gc, M.chimney[1]); wt.push(ch);
@@ -243,14 +245,15 @@ void smain(inout Surface s, vec3 P, vec3 V) {
       const tip = raised ? P2(15 + 65 * Math.cos(80 * DEG), 0, 50 + 65 * Math.sin(80 * DEG)) : P2(80, 0, 50);
       for (const dv of [-4, 4]) segs.push({ a: P2(15, dv, 50), b: [tip[0] + v[0] * dv * 0.5, tip[1], tip[2] + v[1] * dv * 0.5], w: 1.6 });
       segs.push({ a: P2(0, 0, 85), b: tip, w: 0.5 });
-      houses.push(box(P2(-27, 0, 54), [12, 7, 9], { rotY: -ang }));
+      houses.push(box(P2(-27, 0, 53.5), [12, 7, 9], { rotY: -ang }));        // (on the back-reach girders at 50 m)
       // the floods along the portal and the boom, the beacons
       for (const [du, dv] of [[-15, -9], [-15, 9], [15, -9], [15, 9], [0, -9], [0, 9]]) L.fixed.add(...P2(du, dv, 47), hash1(i * 3 + du) < 0.5 ? LIGHT_COL.sodium : LIGHT_COL.led4000, 2.0, { size: 1.6, minPx: 1.6, on: 0.1 });
       L.fixed.add(...P2(0, 0, 86), LIGHT_COL.red, 2.4, { size: 1.0, minPx: 1.6, on: 0 });
       L.fixed.add(tip[0], tip[1] + 1, tip[2], LIGHT_COL.red, 2.4, { size: 1.0, minPx: 1.6, on: 0, period: raised ? 0 : 2.0, duty: 0.5 });
     });
     lineMesh(world, lineMat(world, 'oakland cranes', '#d6d6d0', { minPx: 1.0, night: 0.55 }), segs, 'landmark:oakland cranes');
-    world.mesh(merge(houses), solidMat(world, 'crane houses', '#cfd0cc', { night: 0.55 }), { name: 'landmark:oakland crane houses', cast: false });
+    const hm = world.mesh(merge(houses), solidMat(world, 'crane houses', '#cfd0cc', { night: 0.55 }), { name: 'landmark:oakland crane houses', cast: false });
+    world.relate('loose', { mesh: hm, why: 'each machinery house rides its crane\'s back-reach girders, which are drawn as soft lines (transparent: the check skips them)' });
     out.cranes = C.length;
   }
   // ---- the city's towers' obstruction beacons: red, steady, on every tower over 120 m (FAA AC 70/7460-1)

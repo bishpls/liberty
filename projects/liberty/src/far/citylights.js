@@ -76,7 +76,15 @@ export async function buildCityLights(world, ctx, D, opts = {}) {
       if (ya === null || yb === null) continue;
       // the long bridges over the water OSM maps and nobody built by hand (the Richmond-San Rafael, 14 km up the bay):
       // a deck on its piers, under its lamps and its traffic
-      if (br && (ga < 0.5 || gb < 0.5)) { decks.push(beam([a[0], ya - 2.0, a[1]], [b[0], yb - 2.0, b[1]], 13, 2.6)); if (i % 3 === 0) decks.push(beam([a[0], -2, a[1]], [a[0], ya - 3.2, a[1]], 3.5, 6)); }
+      if (br && (ga < 0.5 || gb < 0.5)) {
+        decks.push(beam([a[0], ya - 2.0, a[1]], [b[0], yb - 2.0, b[1]], 13, 2.6));
+        // its piers, about every 75 m (the Richmond-San Rafael's approach spans, est.), from under the water into the deck
+        const np = Math.max(1, Math.round(L / 75));
+        for (let k = 0; k < np; k++) {
+          const f = (k + 0.5) / np, px = a[0] + (b[0] - a[0]) * f, pz = a[1] + (b[1] - a[1]) * f, py = ya + (yb - ya) * f;
+          decks.push(beam([px, -3, pz], [px, py - 3.2, pz], 3.5, 6));
+        }
+      }
       const ux = (b[0] - a[0]) / L, uz = (b[1] - a[1]) / L;
       for (const dir of oneway ? [1] : [1, -1]) {
         const off = oneway ? 0 : 2.0 + lanes * 0.9;

@@ -100,8 +100,12 @@ export const BIRDS = {
     // black wingtips with white mirrors, the yellow bill's red gonys spot, pink legs
     name: 'western gull', L: 0.60, span: 1.37, wingLen: 0.41, tailLen: 0.165, tailN: 12, tailW: 0.04, tailRound: 0.05, tailFan: 70,
     body: [0.25, 0.13, 0.125], head: 0.036, neck: [0.06, 0.035], neckPose: [0.045, 0.085], neckAngle: 30, bill: [0.055, 0.021, 0.014, 0.18], eye: 0.0055,
-    leg: [0.07, 0.066, 0.06, 0.0055], shoulder: [0.05, 0.05, 0.045], standH: 0.13, webbed: true, patagiumUp: true, juvenile: 0.3,
-    wing: { primaries: 10, secondaries: 18, tertials: 4, chord: 0.40, pmax: 0.88, pin: 0.38, pout: 0.94, fanOut: -72, fingers: 1, slot: 0.15, pw: 0.08, betaH: -18, betaF: 16, betaM: -10, fh: 1.2 },
+    leg: [0.07, 0.066, 0.06, 0.0055], shoulder: [0.05, 0.029, 0.035], standH: 0.13, webbed: true, patagiumUp: true, juvenile: 0.3,
+    // (the wing, 2026-10-24, as the pelican's: the shoulder inside the body (it stood on top of the back, 3 cm out of
+    // it); the hand closed and pointed with two small slots at its tip, as the photos measure (the ten primaries were
+    // fanned 78 deg, every pair apart); the layers over a fixed height; the tertials over the humerus; a leading edge)
+    wing: { primaries: 10, secondaries: 18, tertials: 6, chord: 0.40, pmax: 0.88, pin: 0.38, pout: 0.94, fanOut: -60, fanKnee: [0.5, -34], fingers: 1, slot: 0.15, pw: 0.16, pwTaper: 0.35,
+      stackNorm: true, tertialS: [0.97, 0.12], tertialA: [-26, 7], edge: [0.016, 0.008, 0.004], betaH: -18, betaF: 16, betaM: -10, fh: 1.2 },
     stroke: { amp: 80, mean: 6, down: 0.55, flex: 0.3, sweep: 10, lag: 12, glide: 4, glideFlex: 0.22 },
     pattern: 7, sheen: 0, colors: ['#f2f2ee', '#50575f', '#1b1b1e', '#f4f4f0', '#8a7a68', '#4f4438', '#e2a291', '#e8b52a'],
   },
@@ -112,8 +116,10 @@ export const BIRDS = {
     // tip, the red bill tipped black, black legs
     name: "Heermann's gull", L: 0.49, span: 1.27, wingLen: 0.36, tailLen: 0.14, tailN: 12, tailW: 0.034, tailRound: 0.05, tailFan: 70,
     body: [0.2, 0.105, 0.1], head: 0.03, neck: [0.05, 0.028], neckPose: [0.038, 0.07], neckAngle: 30, bill: [0.045, 0.014, 0.011, 0.15], eye: 0.0048,
-    leg: [0.055, 0.052, 0.048, 0.0045], shoulder: [0.042, 0.042, 0.038], standH: 0.105, webbed: true, patagiumUp: true, juvenile: 0.25,
-    wing: { primaries: 10, secondaries: 17, tertials: 4, chord: 0.38, pmax: 0.88, pin: 0.38, pout: 0.94, fanOut: -72, fingers: 1, slot: 0.12, pw: 0.08, betaH: -18, betaF: 16, betaM: -10, fh: 1.2 },
+    leg: [0.055, 0.052, 0.048, 0.0045], shoulder: [0.042, 0.023, 0.028], standH: 0.105, webbed: true, patagiumUp: true, juvenile: 0.25,
+    // (the wing, 2026-10-24: as the western gull's)
+    wing: { primaries: 10, secondaries: 17, tertials: 6, chord: 0.38, pmax: 0.88, pin: 0.38, pout: 0.94, fanOut: -60, fanKnee: [0.5, -34], fingers: 1, slot: 0.12, pw: 0.16, pwTaper: 0.35,
+      stackNorm: true, tertialS: [0.97, 0.12], tertialA: [-26, 7], edge: [0.014, 0.007, 0.0035], betaH: -18, betaF: 16, betaM: -10, fh: 1.2 },
     stroke: { amp: 82, mean: 6, down: 0.55, flex: 0.32, sweep: 10, lag: 12, glide: 4, glideFlex: 0.22 },
     pattern: 11, sheen: 0, colors: ['#6a6d72', '#3a3c40', '#1a1a1c', '#8d8882', '#4a3e34', '#33291f', '#1c1c1c', '#d0402c'],
   },
@@ -125,8 +131,15 @@ export const BIRDS = {
     // (photo site 26)
     name: 'brown pelican', L: 1.2, span: 2.03, wingLen: 0.52, tailLen: 0.14, tailN: 20, tailW: 0.034, tailRound: 0.25, tailFan: 80,
     body: [0.42, 0.24, 0.22], head: 0.052, neck: [0.36, 0.05], neckPose: [0.14, 0.42], neckAngle: 62, bill: [0.31, 0.05, 0.055, 0.1], eye: 0.0068,
-    leg: [0.08, 0.08, 0.11, 0.009], shoulder: [0.1, 0.09, 0.09], standH: 0.2, webbed: true, patagiumUp: true, juvenile: 0.35, pouch: 1,
-    wing: { primaries: 10, secondaries: 28, tertials: 5, chord: 0.55, pmax: 0.7, pin: 0.45, pout: 0.75, fanOut: -66, fingers: 4, slot: 0.4, pw: 0.09, betaH: -15, betaF: 10, betaM: -8, fh: 1.35 },
+    leg: [0.08, 0.08, 0.11, 0.009], shoulder: [0.1, 0.06, 0.06], standH: 0.2, webbed: true, patagiumUp: true, juvenile: 0.35, pouch: 1,
+    // (the wing, 2026-10-24, the director: 'ragged / disconnected from some angles': the shoulder inside the body (it
+    // stood 3 cm above its back); the primaries' inner five closed and the outer five broad fingers (gap / width ~0.5 at
+    // their tips, as the photos measure: they were ten sticks fanned 72 deg); the 28 secondaries' layers spread over
+    // 6 mm (they stacked 6.5 cm, over their own coverts); the tertials over the whole humerus, meeting the inner
+    // secondaries at the elbow (a wedge was open there); a leading edge 4.4 cm thick at the shoulder tapering to 1 cm,
+    // so edge-on it reads as a wing, not a hairline)
+    wing: { primaries: 10, secondaries: 28, tertials: 7, chord: 0.55, pmax: 0.7, pin: 0.45, pout: 0.75, fanOut: -50, fanKnee: [0.5556, -22], fingers: 5, slot: 0.25, pw: 0.16, pwTaper: 0.3,
+      stackNorm: true, tertialS: [0.97, 0.12], tertialA: [-17, 10], edge: [0.022, 0.011, 0.005], betaH: -15, betaF: 10, betaM: -8, fh: 1.35 },
     stroke: { amp: 70, mean: 0, down: 0.55, flex: 0.2, sweep: 8, lag: 10, glide: -2, glideFlex: 0.12 },
     pattern: 8, sheen: 0, colors: ['#9a958c', '#4a433d', '#ece6d2', '#1c1b1a', '#6a6058', '#e6e0d4', '#2e2e2c', '#8f8b84'],
   },
@@ -137,8 +150,11 @@ export const BIRDS = {
     // orange throat (photo site 28); the young brown with a pale breast; legs set far back
     name: 'double-crested cormorant', L: 0.8, span: 1.2, wingLen: 0.31, tailLen: 0.15, tailN: 14, tailW: 0.022, tailRound: 0.3, tailFan: 60,
     body: [0.33, 0.14, 0.14], head: 0.034, neck: [0.2, 0.028], neckPose: [0.1, 0.22], neckAngle: 55, bill: [0.065, 0.016, 0.012, 0.4], eye: 0.005,
-    leg: [0.06, 0.065, 0.085, 0.006], shoulder: [0.07, 0.06, 0.05], standH: 0.13, webbed: true, patagiumUp: true, juvenile: 0.3,
-    wing: { primaries: 10, secondaries: 18, tertials: 3, chord: 0.6, pmax: 0.7, pin: 0.5, pout: 0.7, fanOut: -62, fingers: 3, slot: 0.3, pw: 0.1, betaH: -20, betaF: 14, betaM: -6, fh: 1.2 },
+    leg: [0.06, 0.065, 0.085, 0.006], shoulder: [0.07, 0.032, 0.037], standH: 0.13, webbed: true, patagiumUp: true, juvenile: 0.3,
+    // (the wing, 2026-10-24, as the pelican's: the shoulder inside the body; the inner primaries closed and three broad
+    // fingers, as the photos measure (all ten were fanned 68 deg); the layers, the tertials, a leading edge)
+    wing: { primaries: 10, secondaries: 18, tertials: 5, chord: 0.6, pmax: 0.7, pin: 0.5, pout: 0.7, fanOut: -52, fanKnee: [0.5556, -24], fingers: 4, slot: 0.2, pw: 0.17, pwTaper: 0.3,
+      stackNorm: true, tertialS: [0.97, 0.12], tertialA: [-26, 5], edge: [0.014, 0.007, 0.0035], betaH: -20, betaF: 14, betaM: -6, fh: 1.2 },
     stroke: { amp: 85, mean: 4, down: 0.55, flex: 0.25, sweep: 10, lag: 12, glide: 2, glideFlex: 0.1 },
     pattern: 9, sheen: 1, colors: ['#1d1c1a', '#4a4434', '#e3982c', '#b9a585', '#5a4c3a', '#121212', '#1a1a1a', '#3a3832'],
   },
@@ -149,8 +165,11 @@ export const BIRDS = {
     // morphs by seed (blue-bar, checker, dark, red, white)
     name: 'rock pigeon', L: 0.32, span: 0.64, wingLen: 0.22, tailLen: 0.12, tailN: 12, tailW: 0.026, tailRound: 0.15, tailFan: 90,
     body: [0.13, 0.085, 0.085], head: 0.022, neck: [0.03, 0.022], neckPose: [0.03, 0.045], neckAngle: 45, bill: [0.018, 0.006, 0.006, 0.12], eye: 0.0045,
-    leg: [0.03, 0.03, 0.035, 0.0035], shoulder: [0.03, 0.035, 0.03], standH: 0.055, patagiumUp: true,
-    wing: { primaries: 10, secondaries: 12, tertials: 3, chord: 0.55, pmax: 0.8, pin: 0.5, pout: 0.85, fanOut: -66, fingers: 0, slot: 0, pw: 0.11, betaH: -22, betaF: 15, betaM: -10, fh: 1.15 },
+    leg: [0.03, 0.03, 0.035, 0.0035], shoulder: [0.03, 0.019, 0.022], standH: 0.055, patagiumUp: true,
+    // (the wing, 2026-10-24, as the gulls': the shoulder inside the body; the hand closed and pointed (all ten were
+    // fanned 72 deg); the layers, the tertials, a leading edge)
+    wing: { primaries: 10, secondaries: 12, tertials: 4, chord: 0.55, pmax: 0.8, pin: 0.5, pout: 0.85, fanOut: -60, fanKnee: [0.5, -34], fingers: 0, slot: 0, pw: 0.17, pwTaper: 0.35,
+      stackNorm: true, tertialS: [0.97, 0.12], tertialA: [-29, 3], edge: [0.011, 0.005, 0.0025], betaH: -22, betaF: 15, betaM: -10, fh: 1.15 },
     stroke: { amp: 110, mean: 10, down: 0.55, flex: 0.45, sweep: 14, lag: 16, glide: 15, glideFlex: 0.2 },
     pattern: 10, sheen: 0, colors: ['#8a929e', '#6a727e', '#a4abb5', '#26262a', '#c4c8cc', '#4c5058', '#b04a44', '#2a2828'],
   },

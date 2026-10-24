@@ -75,6 +75,8 @@ export class World {
   //                                                  'target' (a point inside the receiver) before it meets any surface
   //                                                  but its source's
   //   relate('loose', { mesh, why })                  exempt from the support check (floating, hung, flying by design)
+  //   relate('ground', { heightAt: (x, z) => y | null, why })  more ground for the support check: a surface its triangles
+  //                                                  don't show (a terrain displaced in its shader); null where it isn't
   // A mesh flag does the last one too: world.mesh(geo, mats, { loose: true }).
   // A mesh whose geometry is placed by its shader or a simulation (koi, actors) says where it is: set
   //   mesh.userData.posAt = (t, instance) => [x, y, z]   (instance null: the whole object's centre)

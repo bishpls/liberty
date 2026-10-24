@@ -14,6 +14,8 @@
 //   -> { ms, counts, findings: [{ kind, ok, severity, name, tag, at, points: [p, q], gap, note }], support, attach, flows }
 //   Host opts.assembly: { exclude: [modules], supports: [modules that are ground: never checked, they hold what touches
 //   them], weak: [modules whose contacts hold only their own parts, e.g. trees] }.
+//   A module's own ground whose triangles the check can't read (a terrain its shader displaces): world.relate('ground',
+//   { heightAt: (x, z) => y, or null where it isn't that ground, why }); a vertex at or under any ground stands.
 //   Skipped: transparent meshes, soft-outline foliage (outline group >= 10), skinned meshes, 'loose' ones
 //   (world.relate('loose') or the mesh flag), the ground module and opts.exclude / host opts.assembly.exclude.
 //
@@ -248,7 +250,14 @@ export function install(N, api) {
   const r3 = v => v && v.map(x => +x.toFixed(3));
 
   function support(isl, opts) {
-    const tol = opts.tol, heightAt = N.ctx.heightAt;
+    const tol = opts.tol, heightAt0 = N.ctx.heightAt;
+    // (the declared grounds besides the world's: a vertex under any of them stands, so its height over the highest)
+    const grounds = (N.world.relations || []).filter(r => r.kind === 'ground' && r.heightAt).map(r => r.heightAt);
+    const heightAt = !grounds.length ? heightAt0 : (x, z) => {
+      let h = heightAt0 ? heightAt0(x, z) : -Infinity;
+      for (const g of grounds) { const y = g(x, z); if (y !== null && y !== undefined && y > h) h = y; }
+      return h;
+    };
     const n = isl.length, GROUND = n, parent = new Int32Array(n + 1).map((_, i) => i);
     const find = i => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
     const join = (a, b) => { a = find(a); b = find(b); if (a !== b) parent[a] = b; };

@@ -91,20 +91,39 @@ export function buildStructure(world, M, L, P, G0) {
   }
   // ---- ground support: the towers (20.5 in truss) on base frames with outriggers and jacks on sole boards, a sleeve
   // block at the grid, a top section with its chain hoist; two IBC water totes (1 t each) as ballast by each base
+  // the ground support's footprints on the deck (bases, sole boards, totes: [x0, z0, x1, z1]): a foot is drawn in until its
+  // board is clear of the others (the IMAG goalposts stand 1.3-1.7 m from the downstage towers)
+  const feet = [];
+  const clear = (x, z, hx, hz) => !feet.some(f => x + hx > f[0] - 0.03 && x - hx < f[2] + 0.03 && z + hz > f[1] - 0.03 && z - hz < f[3] + 0.03);
+  const reserve = (x, z, hx, hz) => feet.push([x - hx, z - hz, x + hx, z + hz]);
+  // the IMAG goalposts' geometry (built below): towers beside each screen, as far back as its frame's top edge
+  // (the pyro on the deck and the stage's towers first: a goalpost's tower steps out from the screen until it is clear)
+  for (const p of [...L.flames, ...L.gerbs.rail, ...L.sparks, ...L.co2]) reserve(p.pos[0], p.pos[2], 0.3, 0.3);
+  for (const t of L.towers) reserve(t.x, t.z, 0.375, 0.375);
+  const rigs = new Map();
+  const imagRig = im => {
+    if (rigs.has(im)) return rigs.get(im);
+    const tilt = im.tilt * Math.PI / 180, ct = Math.cos(tilt), st = Math.sin(tilt);
+    const c = [im.x - 0.04 - st * im.h / 2, im.y0 + im.h / 2 + (1 - ct) * im.h / 2, im.z];
+    const topE = [c[0] - st * im.h / 2, c[1] + ct * im.h / 2], foot = [c[0] + st * im.h / 2, c[1] - ct * im.h / 2], tx = topE[0] - 0.05;
+    const zs = [-1, 1].map(sg => { let d = im.w / 2 + 0.45; while (d < im.w / 2 + 1.5 && !clear(tx, im.z + sg * d, 0.3, 0.3)) d += 0.05; return im.z + sg * d; });
+    const r = { ct, st, c, topE, foot, tx, head: topE[1] + 1.15, zs }; rigs.set(im, r); return r;
+  };
+  for (const im of L.imag) { const r = imagRig(im); for (const tz of r.zs) { reserve(r.tx, tz, 0.3, 0.3); reserve(r.tx - 1.55, tz, 0.5, 0.6); } }
   out.towers = [];
   for (const t of L.towers) {
     const y0 = t.base + 0.16, y1 = t.top, h = t.size / 2;
     boxTruss(g.truss, [t.x, y0, t.z], [t.x, y1, t.z], { size: t.size, chord: 0.0254, diag: 0.0127, sec: 2.0, up: [0, 0, 1], seed: R() });
     // the base: a steel frame with four outriggers to jacks on sole boards
-    g.black.box([t.x, t.base + 0.09, t.z], [0.75, 0.14, 0.75], 0, R());
+    g.black.box([t.x, t.base + 0.09, t.z], [0.75, 0.14, 0.75], 0, R()); reserve(t.x, t.z, 0.375, 0.375);
     for (const [ax, az] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
       // (an outrigger's sole board stays on her deck: the downstage towers stand 0.85 m inside her side, and at full
       // reach their outboard feet fell past it to the water, the tour's 'blue needles on plates' in the gap; such a
       // foot is drawn in along its diagonal until the whole board is on the deck)
       let s = 0.95;
       const onDeck = (x, z) => Math.abs(x) <= L.halfAt(z) - 0.3 && G.footY(x, z) > t.base - 0.3;
-      while (s > 0.4 && !onDeck(t.x + ax * (s + 0.25), t.z + az * (s + 0.25))) s -= 0.05;
-      const ex = t.x + ax * s, ez = t.z + az * s, ey = G.footY(ex, ez);
+      while (s > 0.4 && !(onDeck(t.x + ax * (s + 0.25), t.z + az * (s + 0.25)) && clear(t.x + ax * s, t.z + az * s, 0.225, 0.225))) s -= 0.05;
+      const ex = t.x + ax * s, ez = t.z + az * s, ey = G.footY(ex, ez); reserve(ex, ez, 0.225, 0.225);
       g.galv.bar([t.x + ax * 0.3, t.base + 0.12, t.z + az * 0.3], [ex, ey + 0.16, ez], 0.06, 0.06, R());
       g.galv.tube([ex, ey + 0.04, ez], [ex, ey + 0.2, ez], 0.02, 6, R());
       g.timber.box([ex, ey + 0.02, ez], [0.45, 0.04, 0.45], 0, R());
@@ -117,26 +136,46 @@ export function buildStructure(world, M, L, P, G0) {
     g.cable.tube([t.x + h * 0.5, y1 - 0.5, t.z], [t.x + h * 0.5, L.grid.y + L.grid.size + 0.2, t.z], 0.006, 4, 0.5);
     // the ballast: two IBC totes outboard of the base (along z away from the stage)
     const sz = t.z < L.deck.zc ? -1 : 1;
-    // (the pair kept 0.35 m inside her side: the downstage towers' outboard tote overhung it by 0.27 m, on nothing)
-    const tz = t.z + sz * 1.75, xMax = L.halfAt(tz) - 0.35 - 0.5, sh = Math.min(0, xMax - (t.x + 0.65));
-    for (const k of [0, 1]) tote(g, R, t.x + (k ? 0.65 : -0.65) + sh, tz, G);
+    // (the pair kept 0.35 m inside her side: the downstage towers' outboard tote overhung it by 0.27 m, on nothing; where
+    // the pair doesn't fit across, it stands in line along her side instead, clear of the IMAG goalposts inboard of it)
+    const tz = t.z + sz * 1.75, xMax = L.halfAt(tz) - 0.35 - 0.5;
+    if (t.x + 0.65 <= xMax) for (const k of [0, 1]) { tote(g, R, t.x + (k ? 0.65 : -0.65), tz, G); reserve(t.x + (k ? 0.65 : -0.65), tz, 0.5, 0.6); }
+    else for (const k of [0, 1]) { tote(g, R, Math.min(t.x, xMax), tz + sz * k * 1.25, G); reserve(Math.min(t.x, xMax), tz + sz * k * 1.25, 0.5, 0.6); }
     out.towers.push({ name: t.name, x: t.x, z: t.z, base: +t.base.toFixed(2), height: +(y1 - y0).toFixed(2) });
   }
-  // ---- the IMAG towers: a 12 in truss mast each on a base frame with outriggers and a tote, the screen's frame flown
-  // from a head block at its top on a short arm, tipped down at the apron
+  // ---- the IMAG screens on goalposts (ground support beside the stage): two 12 in towers flanking each screen, a header
+  // truss across their heads, and the screen's frame hung under it on two chain hoists, tipped down at the apron (a
+  // kicker at its foot). (The first cut stood one tower at the screen's own z, 0.55 m behind its foot: the tipped face
+  // leans back past it, so the truss ran down the middle of the picture, in front of its upper half; the director's
+  // screenshot, 2026-10-24.) Nothing stands between a screen and the apron
   out.imag = [];
   for (const im of L.imag) {
-    const tx = im.x - 0.55, y0 = im.base + 0.12, top = im.y0 + im.h + 0.7, tilt = im.tilt * Math.PI / 180;
-    boxTruss(g.truss, [tx, y0, im.z], [tx, top, im.z], { size: 0.29, sec: 2.0, up: [0, 0, 1], seed: R() });
-    g.black.box([tx, im.base + 0.07, im.z], [0.6, 0.12, 0.6], 0, R());
-    for (const [ax, az] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) { const ex = tx + ax * 0.8, ez = im.z + az * 0.8, ey = G.footY(ex, ez); g.galv.bar([tx + ax * 0.25, im.base + 0.1, im.z + az * 0.25], [ex, ey + 0.14, ez], 0.05, 0.05, R()); g.timber.box([ex, ey + 0.02, ez], [0.4, 0.04, 0.4], 0, R()); }
-    tote(g, R, tx - 0.95, im.z + im.side * 1.5, G);
-    g.black.box([tx + 0.25, top - 0.1, im.z], [0.7, 0.14, 0.25], 0, R());
-    // the screen's frame: a black back, tipped about its top edge (the face is screens.js's)
-    const c = [im.x - 0.04 - Math.sin(tilt) * im.h / 2, im.y0 + im.h / 2 + (1 - Math.cos(tilt)) * im.h / 2, im.z];
-    g.black.obox(c, [0.045, im.h / 2, im.w / 2 + 0.03], [[Math.cos(tilt), Math.sin(tilt), 0], [-Math.sin(tilt), Math.cos(tilt), 0], [0, 0, 1]], R());
-    g.cable.tube([tx + 0.5, top - 0.15, im.z], [c[0], im.y0 + im.h - 0.03, im.z], 0.008, 4, 0.5);
-    out.imag.push({ side: im.side < 0 ? 'SL' : 'SR', at: [im.x, im.z], bottom: im.y0, top: +(im.y0 + im.h).toFixed(2), tower: +(top - y0).toFixed(2) });
+    // the frame: a black back (the face is screens.js's); the goalpost: towers at the screen's sides, as far back as its
+    // frame's top edge (beside the picture from any seat in front)
+    const { ct, st, c, topE, foot, tx, head, zs } = imagRig(im);
+    g.black.obox(c, [0.045, im.h / 2, im.w / 2 + 0.03], [[ct, st, 0], [-st, ct, 0], [0, 0, 1]], R());
+    for (const tz of zs) {
+      const y0 = G.deckY(tx, tz) + 0.12;
+      boxTruss(g.truss, [tx, y0, tz], [tx, head, tz], { size: 0.29, sec: 2.0, up: [0, 0, 1], seed: R() });
+      g.black.box([tx, y0 - 0.05, tz], [0.6, 0.12, 0.6], 0, R());
+      g.black.box([tx, head + 0.2, tz], [0.4, 0.12, 0.4], 0, R());                    // (the head block)
+      for (const [ax, az] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+        let s2 = 0.8; while (s2 > 0.35 && !clear(tx + ax * s2, tz + az * s2, 0.2, 0.2)) s2 -= 0.05;
+        const ex = tx + ax * s2, ez = tz + az * s2, ey = G.footY(ex, ez); reserve(ex, ez, 0.2, 0.2);
+        g.galv.bar([tx + ax * 0.25, y0 - 0.02, tz + az * 0.25], [ex, ey + 0.14, ez], 0.05, 0.05, R()); g.timber.box([ex, ey + 0.02, ez], [0.4, 0.04, 0.4], 0, R());
+      }
+      tote(g, R, tx - 1.55, tz, G);                       // (its ballast, behind it, clear of its outriggers)
+    }
+    // the header: a 12 in truss across the towers' heads; two chain hoists under it, their chains to the frame's top
+    // corners; a kicker from the frame's foot back to the deck holds the tip (12 deg)
+    boxTruss(g.truss, [tx, head, zs[0]], [tx, head, zs[1]], { size: 0.29, sec: 2.0, up: [1, 0, 0], seed: R() });
+    for (const dz of [-im.w / 2 + 0.25, im.w / 2 - 0.25]) {
+      const hz = im.z + dz;
+      g.gloss.box([tx, head - 0.35, hz], [0.26, 0.36, 0.22], 0, R());
+      g.cable.tube([tx, head - 0.53, hz], [topE[0], topE[1] + 0.02, hz], 0.007, 4, 0.5);
+    }
+    for (const dz of [-im.w / 2 + 0.2, im.w / 2 - 0.2]) g.galv.tube([foot[0] - 0.06, foot[1] + 0.05, im.z + dz], [tx - 0.6, G.deckY(tx - 0.6, im.z + dz) + 0.05, im.z + dz], 0.025, 6, R());
+    out.imag.push({ side: im.side < 0 ? 'SL' : 'SR', at: [im.x, im.z], bottom: im.y0, top: +(im.y0 + im.h).toFixed(2), towers: zs.map(z => +z.toFixed(2)), towerX: +tx.toFixed(2), head: +head.toFixed(2) });
   }
   // ---- the grid: 12 in box truss; corner blocks where trusses meet
   let gridTris = 0;
@@ -211,7 +250,8 @@ export function buildStructure(world, M, L, P, G0) {
   crew(g, L, G, R, out);
   // ---- extinguishers by every flame unit and gerb group (a pyro show's rule), red with a black hose
   out.extinguishers = 0;
-  for (const f of L.flames) { extinguisher(g, [f.pos[0] - 0.9, G.footY(f.pos[0] - 0.9, f.pos[2]), f.pos[2]], R); out.extinguishers++; }
+  // (1.7 m inboard: outside the flame's drawn column and its metre of air, clearance.js)
+  for (const f of L.flames) { extinguisher(g, [f.pos[0] - 1.7, G.footY(f.pos[0] - 1.7, f.pos[2]), f.pos[2]], R); out.extinguishers++; }
   // ---- the cables: the multicore from the stage box to the monitor world; each mark's line to the stage box;
   // the feeders from the distro to the towers; ramps where they cross the stairs' feet
   cables(g, L, G, R, out);

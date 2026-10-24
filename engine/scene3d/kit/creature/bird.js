@@ -34,7 +34,7 @@ export const BIRD_TEX_W = 10;
 // leaves it (the shader's BODY_PROF is the same function: a folded wing is laid on this surface)
 export const bodyProf = s => Math.pow(Math.max(Math.sin(Math.PI * (0.05 + 0.9 * s)), 0), 0.5) * (1 - 0.18 * (1 - s) * (1 - s));
 // parts (aPart): 0 body, 1 neck, 2 head, 3 upper bill, 4 lower bill, 5 eye, 6 tail feather, 7 wing feather, 8 patagium,
-// 9 leg (tibia, tarsus), 10 toe
+// 9 leg (tibia, tarsus), 10 toe, 11 web, 12 the wing's leading edge (opt-in)
 // LOD: 0 near (every feather), 1 mid (feathers grouped into a few blades), 2 far (a body and two panels a wing)
 export function birdGeometry(B, lod = 0) {
   const pos = [], nrm = [], uv = [], aP = [], aA = [], aB = [], aC = [], idx = [];
@@ -125,6 +125,14 @@ export function birdGeometry(B, lod = 0) {
     // them up: opt-in, so the worlds already using the kit draw as before)
     if (B.patagiumUp) flip = sd > 0;
     grid(nu, nv, (i, j) => { push([0, 0, 0], [0, 1, 0], [i / nu, j / nv], 8, [sd, i / nu, j / nv, 0], Z, Z); });
+    // (opt-in, B.wing.edge [r shoulder, r wrist, r hand tip] m: the wing's leading edge as a tube, the arm's muscle and
+    // the patagium's rolled edge, so a wing seen edge-on is a tapering bar joined to the body, not a hairline; shoulder
+    // (u 0) to wrist (u 1) to the hand's tip (u 2))
+    if (B.wing && B.wing.edge) {
+      const ne = [10, 5, 2][lod], na = [6, 4, 3][lod];
+      flip = sd < 0;
+      grid(ne, na, (i, j) => { push([0, 0, 0], [0, 1, 0], [i / ne, j / na], 12, [sd, 2 * i / ne, j / na * Math.PI * 2, 0], Z, Z); });
+    }
   }
   flip = false;
   // legs: tibia (segment 0) and tarsus (1) as tubes, toes (2: front three and the hallux)
@@ -175,26 +183,39 @@ export function wingLayout(B, lod = 0) {
     return out;
   }
   const P = [];
+  // (opt-in, a preset's wing fields; without them every wing is laid out as before:
+  //   fanKnee [u, deg]   the primaries' spread: lerp(6, deg) over the inner ones (u < the knee), so they lie closed, and
+  //                      lerp(deg, fanOut) over the outer, the fingers (else lerp(6, fanOut) by u^0.9: every one fanned)
+  //   pwTaper            the primaries' width lost toward the outer (default 0.25)
+  //   stackNorm          each row's layers spread over a fixed height (a fraction of the wing's length) instead of a
+  //                      step a feather: a row of many (a pelican's 28 secondaries) otherwise stacks centimetres high, its
+  //                      inner feathers over their own coverts
+  //   tertialS, tertialA the tertials' places on the humerus [nearest the elbow, nearest the shoulder] (default [0.85,
+  //                      0.45]) and their spread angles there (deg, default [14, 30]): the whole humerus covered, and the
+  //                      elbow closed where they meet the inner secondaries)
+  // (stackNorm: a row's layers rise k / n of h wing lengths at its k-th feather)
+  const SN = !!w.stackNorm, sn = (k, n, h) => k * h * Lw / Math.max(1, n);
   // primaries: P1 (inner) .. Pn (outer). The longest at w.pmax (0..1 along the row); the tip's shape follows
   for (let i = 0; i < np; i++) {
     const u = np === 1 ? 1 : i / (np - 1);
     const d = (u - w.pmax), shape = d < 0 ? 1 - Math.pow(-d / w.pmax, 1.6) * (1 - w.pin) : 1 - Math.pow(d / Math.max(1 - w.pmax, 0.05), 1.5) * (1 - w.pout);
     const len = Lw * 0.86 * shape;
     // spread angle: inner primaries point back like the secondaries, outer ones fan toward the tip
-    const aS = lerp(6, w.fanOut, Math.pow(u, 0.9)) * DEG;
+    const fk = w.fanKnee;
+    const aS = (fk ? (u < fk[0] ? lerp(6, fk[1], u / fk[0]) : lerp(fk[1], w.fanOut, (u - fk[0]) / Math.max(1 - fk[0], 1e-3))) : lerp(6, w.fanOut, Math.pow(u, 0.9))) * DEG;
     const emarg = (np - 1 - i) < w.fingers ? w.slot * (1 - (np - 1 - i) / Math.max(1, w.fingers) * 0.35) : 0;
-    P.push({ group: 2, s: lerp(0.02, 0.92, u), row: 0, idx: u, len, w: Lw * w.pw * (1 - 0.25 * u), aS, aF: -86 * DEG + u * 3 * DEG, layer: -0.0016 * (i + 1) * (Lw / 0.3), emarg });
+    P.push({ group: 2, s: lerp(0.02, 0.92, u), row: 0, idx: u, len, w: Lw * w.pw * (1 - (w.pwTaper ?? 0.25) * u), aS, aF: -86 * DEG + u * 3 * DEG, layer: SN ? -sn(i + 1, np, 0.012) : -0.0016 * (i + 1) * (Lw / 0.3), emarg });
   }
   const S = [];
   for (let i = 0; i < ns; i++) {
     const u = ns === 1 ? 0 : i / (ns - 1);                  // S1 at the wrist (u 0) .. Sn at the elbow
     // each secondary ~1.7x as wide as its spacing on the forearm: they overlap like shingles
-    S.push({ group: 1, s: lerp(0.98, 0.04, u), row: 0, idx: u, len: chord * (1 - 0.08 * u) * (1 + 0.04 * Math.sin(u * 3)), w: Math.max(bones.fore * 0.94 / Math.max(1, ns - 1) * 1.7, chord * 0.12), aS: lerp(-4, 8, u) * DEG, aF: (88 - 6 * u) * DEG, layer: 0.0013 * (i + 1) * (Lw / 0.3), emarg: 0 });
+    S.push({ group: 1, s: lerp(0.98, 0.04, u), row: 0, idx: u, len: chord * (1 - 0.08 * u) * (1 + 0.04 * Math.sin(u * 3)), w: Math.max(bones.fore * 0.94 / Math.max(1, ns - 1) * 1.7, chord * 0.12), aS: lerp(-4, 8, u) * DEG, aF: (88 - 6 * u) * DEG, layer: SN ? sn(i + 1, ns, 0.012) : 0.0013 * (i + 1) * (Lw / 0.3), emarg: 0 });
   }
-  const Tt = [];
+  const Tt = [], tS = w.tertialS || [0.85, 0.45], tA = w.tertialA || [14, 30];
   for (let i = 0; i < nt; i++) {
     const u = nt === 1 ? 0 : i / (nt - 1);
-    Tt.push({ group: 0, s: lerp(0.85, 0.45, u), row: 0, idx: u, len: chord * lerp(0.92, 0.6, u), w: chord * 0.32, aS: lerp(14, 30, u) * DEG, aF: -95 * DEG, layer: 0.0013 * (ns + i + 2) * (Lw / 0.3), emarg: 0 });
+    Tt.push({ group: 0, s: lerp(tS[0], tS[1], u), row: 0, idx: u, len: chord * lerp(0.92, 0.6, u), w: chord * 0.32, aS: lerp(tA[0], tA[1], u) * DEG, aF: -95 * DEG, layer: SN ? 0.012 * Lw + sn(i + 2, nt + 1, 0.006) : 0.0013 * (ns + i + 2) * (Lw / 0.3), emarg: 0 });
   }
   if (lod === 1) {
     // grouped blades: three primaries' worth, two secondaries', one tertial
@@ -214,7 +235,7 @@ export function wingLayout(B, lod = 0) {
   for (const f of [...P, ...S, ...Tt]) out.push(Object.assign({ nr: f.group === 2 ? 5 : 3, nc: f.group === 2 ? 2 : 1 }, f));
   // coverts: greater (over the secondaries and the primaries' bases), median, marginal; primary coverts; alula
   const cov = (row, frac, wFrac, layer0, list) => list.forEach((f, i) => out.push(Object.assign({}, f, {
-    row, len: f.len * frac, w: f.w * wFrac, layer: layer0 + 0.0009 * i * (Lw / 0.3), emarg: 0, nr: 2, nc: 1,
+    row, len: f.len * frac, w: f.w * wFrac, layer: layer0 + (SN ? sn(i, list.length, 0.008) : 0.0009 * i * (Lw / 0.3)), emarg: 0, nr: 2, nc: 1,
     aS: f.aS * 0.85, aF: f.aF })));
   cov(1, 0.48, 1.05, 0.016 * Lw, S);
   cov(2, 0.27, 1.0, 0.03 * Lw, S.filter((_, i) => i % 2 === 0));
@@ -242,6 +263,7 @@ uniform vec4 uB6;   // legs: tibia, tarsus, toe, hip z
 uniform vec4 uB7;   // neck: drawn-in length, extended length, (unused), (unused)
 uniform vec4 uB8;   // spread angles: humerus, forearm, hand; fold-plane angle
 uniform vec4 uB9;   // folded angles: humerus, forearm, hand; leg radius
+uniform vec4 uB10;  // the leading edge's radii (opt-in, B.wing.edge): shoulder, wrist, the hand's tip
 attribute float aPart; attribute vec4 aA; attribute vec4 aB; attribute vec4 aC;
 vec4 bt(int k) { return texelFetch(uBirds, ivec2(k, gl_InstanceID), 0); }
 // the torso's surface: its half-width at (x, y) in the body frame (0 outside it); bodyProf in bird.js
@@ -355,14 +377,26 @@ void objVertex(inout vec3 p, inout vec3 n, inout vec2 uv) {
     P = base + D * r * len + C * c * wid * 0.5 + Nt * (layer + 0.02 * len * r * r * (1.0 - spread));
     Nn = Nt;
     vF.z = len;
-  } else if (part == 7 || part == 8) {
+  } else if (part == 7 || part == 8 || part == 12) {
     float sd = aA.x;
     vec4 wp = sd > 0.0 ? bt(2) : bt(3);
     float handEl = sd > 0.0 ? p4.x : p4.y;
     vec3 S, E, W, M, fwd, outv, nrm, hfwd, hout, hnrm;
     wingFrame(wp, handEl, S, E, W, M, fwd, outv, nrm, hfwd, hout, hnrm);
     float k = wp.z;
-    if (part == 8) {
+    vec3 upN = nrm;
+    if (part == 12) {
+      // the leading edge: a tube along the patagium's edge (shoulder to wrist), then along the hand (wrist to tip), its
+      // front on the edge; gone as the wing folds
+      float u = aA.y, a = aA.z;
+      vec3 C, ax1, ax2; float rad;
+      if (u <= 1.0) { C = mix(S, W, u) + fwd * sin(3.14159 * u) * uB3.w * 0.08 * (1.0 - k); ax1 = fwd; ax2 = nrm; rad = mix(uB10.x, uB10.y, smoothstep(0.0, 1.0, u)); }
+      else { float v = u - 1.0; C = mix(W, M, v); ax1 = hfwd; ax2 = hnrm; upN = hnrm; rad = mix(uB10.y, uB10.z, v); }
+      rad *= 1.0 - k;
+      C -= ax1 * rad * 0.9;
+      P = C + (ax1 * cos(a) + ax2 * sin(a) * 0.8) * rad;
+      Nn = normalize(ax1 * cos(a) + ax2 * sin(a) * 1.25);
+    } else if (part == 8) {
       // patagium: leading edge (S..W straight, bulged forward) to the bone line (S..E..W)
       float u = aA.y, v = aA.z;
       float lse = length(E - S), lew = length(W - E), ue = lse / max(lse + lew, 1e-5);
@@ -401,8 +435,8 @@ void objVertex(inout vec3 p, inout vec3 n, inout vec2 uv) {
       Nn = normalize(pn - D * bend * r * 0.36 - Cv * c * 0.12);
       vF.z = len;
     }
-    if (sd < 0.0) { P.z = -P.z; Nn.z = -Nn.z; }
-    vUpN = qrot(q, part == 8 ? Nn : normalize(Nn));
+    if (sd < 0.0) { P.z = -P.z; Nn.z = -Nn.z; upN.z = -upN.z; }
+    vUpN = qrot(q, part == 12 ? upN : part == 8 ? Nn : normalize(Nn));
   } else if (part >= 9 && part <= 11) {
     // legs in the world: hip (body) -> knee/ankle by IK -> the foot the caller placed; toes from the foot
     float sd = aA.x;
@@ -485,6 +519,7 @@ export function birdUniforms(B) {
     uB7: v4(B.neckPose[0], B.neckPose[1], 0, 0),
     uB8: v4(w.betaH * D, w.betaF * D, w.betaM * D, (B.foldPlane || -78) * D),
     uB9: v4(-82 * D, 80 * D, -88 * D, B.leg[3]),
+    uB10: v4(...(w.edge || [0, 0, 0]), 0),
     _arm: { hum, fore, hand, arm, b },
   };
 }
@@ -770,7 +805,7 @@ void smain(inout Surface s, vec3 P, vec3 V) {
     if (fq.x > 0.82 && abs(fq.y) > sqrt(max(0.0, 1.0 - pow((fq.x - 0.82) / 0.18, 2.0)))) discard;
     alb *= vane(fq, vF.z, pix) * tipR;
     alb *= 0.92 + 0.08 * smoothstep(0.08, 0.0, abs(fq.y));
-  } else if (part == 7 || part == 8) {
+  } else if (part == 7 || part == 8 || part == 12) {
     bool under = dot(vUpN, V) < 0.0;
     if (part == 7) {
       vec2 fq = vec2(vF.x, vF.y);

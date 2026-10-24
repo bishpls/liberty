@@ -27,7 +27,9 @@ function winchGeo(p, dz) {
   // the bed: two side frames (cast, with lightening holes drawn as dark discs), a base plate, cross ties
   steel.push(boxM(1.5, 0.08, 1.35, tr(x, y + 0.04, z)));
   for (const sx of [-0.62, 0.62]) {
-    steel.push(plate([[-0.62, 0], [0.62, 0], [0.5, 0.62], [0.15, 0.98], [-0.32, 0.98], [-0.62, 0.55]], 0.06, mul(tr(x + sx, y + 0.08, z), ry(-Math.PI / 2), rz(0)).multiply(new T.Matrix4().makeScale(dz, 1, 1))));
+    // (mirrored toward the hatch by its outline, not by a negative scale: that would turn its faces inside out)
+    const fr = [[-0.62, 0], [0.62, 0], [0.5, 0.62], [0.15, 0.98], [-0.32, 0.98], [-0.62, 0.55]].map(([u, v]) => [u * dz, v]);
+    steel.push(plate(dz < 0 ? fr.reverse() : fr, 0.06, mul(tr(x + sx, y + 0.08, z), ry(-Math.PI / 2))));
     black.push(disc([x + sx * 1.055, y + 0.48, z - dz * 0.05], [Math.sign(sx), 0, 0], 0.11, 12));
   }
   // the drum (wire wound on it), its flanges; the shaft through to the warping heads outboard of the frames
@@ -201,8 +203,8 @@ export function buildMachinery(world, M, ctx, B, W, seat, F) {
     if (!b) continue;
     const [bx, by, bz] = b.p, lead = c.at < 100 ? -1 : c.at > 300 ? 1 : (c.at === 190 ? -1 : c.at === 283 ? 1 : 0);
     const pts = [c.p, [c.p[0] - 0.35, c.p[1] - 0.15, c.p[2]]];
-    const turn = (y0, y1) => { for (let k = 0; k <= 32; k++) { const t = k / 32 * Math.PI * 2 + (lead >= 0 ? 0 : Math.PI); const yy = y0 + (y1 - y0) * k / 32; pts.push([bx + 0.27 * Math.sin(2 * t), by + yy, bz + 0.64 * Math.sin(t)]); } };
-    turn(0.22, 0.3); turn(0.32, 0.42);
+    const turn = (y0, y1, k0 = 0) => { for (let k = k0; k <= 32; k++) { const t = k / 32 * Math.PI * 2 + Math.PI / 2; /* (from the forward post's far side, heading inboard as the lead arrives) */ const yy = y0 + (y1 - y0) * k / 32; pts.push([bx + 0.27 * Math.sin(2 * t), by + yy, bz + 0.64 * Math.sin(t)]); } };
+    turn(0.22, 0.3); turn(0.3, 0.42, 1);                // (the second turn carries on from the first: no doubled point)
     const last = pts[pts.length - 1];
     // the tail: off the top turn, down to the deck and flaked in a short run
     pts.push([last[0] - 0.3, by + 0.25, last[2] + 0.2], [bx - 0.75, deckAt(bx - 0.75, bz + 0.5) + 0.04, bz + 0.5], [bx - 0.85, deckAt(bx - 0.85, bz + 1.4) + 0.04, bz + 1.4], [bx - 1.15, deckAt(bx - 1.15, bz + 1.0) + 0.04, bz + 1.0]);

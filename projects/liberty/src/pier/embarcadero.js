@@ -5,7 +5,7 @@
 // streetcars running the F-line (site.md §6: "the F-line streetcars and the Embarcadero traffic, a bright and busy
 // foreground at the shore end"), and the evening's traffic. Everything moving is a pure function of t.
 import { rng } from 'scene3d/util.js';
-import { SHORE, FRONTAGE, EMB } from './site.js';
+import { SHORE, FRONTAGE, EMB, embProfile } from './site.js';
 import { pierMat } from './mats.js';
 import { box, merge, cylinder, latheAt, beam } from './geo.js';
 import { palmGeo } from './trees.js';
@@ -55,9 +55,12 @@ export function buildEmbarcadero(world, M, landAt, out) {
   const P = { poles: [], globes: [], heads: [], wires: [], palmsT: [], palmsF: [] };
   const lights = [];
   const yAt = (x, z) => landAt(x, z);
-  // promenade lamps every 28 m at 4.5 m in; street lights on the far sidewalk every 30 m
+  // the cross-section at arc length s (site.js embProfile: the road's middle off the line, its kerbs, its median)
+  const prof = s => embProfile(path.at(s, 0).x);
+  // promenade lamps every 30 m, 3 m beyond the bay kerb; street lights on the city sidewalk 1.5 m behind the kerb, their
+  // heads 0.7 m over the road (land.js draws their pools at the same offsets)
   for (let s = LAMP_PROM.s; s < path.L; s += LAMP_SPACING) {
-    const q = path.at(s, LAMP_PROM.e), y = yAt(q.x, q.z);
+    const pr = prof(s), q = path.at(s, pr.c - pr.hb - 3.0), y = yAt(q.x, q.z);
     P.poles.push(cylinder([q.x, y, q.z], [q.x, y + 5.6, q.z], 0.09, 8));
     P.poles.push(latheAt([[0.22, 0], [0.2, 0.25], [0.12, 0.4], [0, 0.42]], 8, q.x, y, q.z));
     for (const sg of [-1, 1]) {
@@ -68,7 +71,7 @@ export function buildEmbarcadero(world, M, landAt, out) {
     lights.push({ pos: [q.x, y + 5.0, q.z], kind: 'promenade lamp', color: '#fff1dc' });
   }
   for (let s = LAMP_STREET.s; s < path.L; s += LAMP_SPACING) {
-    const q = path.at(s, LAMP_STREET.e + 2.2), y = yAt(q.x, q.z);
+    const pr = prof(s), q = path.at(s, pr.c + pr.hc + 1.5), y = yAt(q.x, q.z);
     P.poles.push(cylinder([q.x, y, q.z], [q.x, y + 8.8, q.z], 0.1, 8));
     const hx = q.x - q.n[0] * 2.2, hz = q.z - q.n[1] * 2.2;
     P.poles.push(beam([q.x, y + 8.7, q.z], [hx, y + 8.9, hz], 0.08, 0.08));
@@ -77,27 +80,35 @@ export function buildEmbarcadero(world, M, landAt, out) {
   }
   // the F-line's catenary: poles at 15.6 m and 23.4 m every 32 m, a span wire between them at 6.6 m, a contact wire over
   // each track (17.3 and 21.7 m) at 5.6 m, a messenger above it
+  // (only where the road has its median and tracks: none by Pier 39)
   const wireY = 5.6;
   let prev = null;
   for (let s = 0; s < path.L; s += 32) {
-    const a = path.at(s, -3.9), b = path.at(s, 3.9), ya = yAt(a.x, a.z), yb = yAt(b.x, b.z);
+    const pr = prof(s);
+    if (!pr.tk || pr.md < 3.5) { prev = null; continue; }
+    const pw = pr.md - 0.6, a = path.at(s, pr.c - pw), b = path.at(s, pr.c + pw), ya = yAt(a.x, a.z), yb = yAt(b.x, b.z);
     P.poles.push(cylinder([a.x, ya, a.z], [a.x, ya + 7.2, a.z], 0.12, 8), cylinder([b.x, yb, b.z], [b.x, yb + 7.2, b.z], 0.12, 8));
     P.wires.push(beam([a.x, ya + 6.6, a.z], [b.x, yb + 6.6, b.z], 0.03, 0.03));
-    const tracks = [path.at(s, -EMB.tracks), path.at(s, EMB.tracks)];
+    const offs = [-pr.tk, pr.tk], tracks = offs.map(o => path.at(s, pr.c + o));
     if (prev) tracks.forEach((t, k) => P.wires.push(beam([prev[k].x, prev[k].y + wireY, prev[k].z], [t.x, yAt(t.x, t.z) + wireY, t.z], 0.025, 0.025)));
+    // the hangers: each contact wire hung from the span wire over its track (the assembly check found the contact wires
+    // hanging free, 1 m under the span)
+    tracks.forEach((t, k) => { const y = ya + (yb - ya) * (offs[k] + pw) / (2 * pw); P.wires.push(beam([t.x, yAt(t.x, t.z) + wireY - 0.02, t.z], [t.x, y + 6.62, t.z], 0.015, 0.015)); });
     prev = tracks.map(t => ({ x: t.x, z: t.z, y: yAt(t.x, t.z) }));
   }
-  // palms on the median in front of the bulkheads and along the promenade by Pier 39 (photos 07, 41)
+  // palms (photos 07, 41): in the median between the tracks from Pier 33's frontage south (z19/z18 cross-sections: a crown
+  // every ~17 m from x 115 to the box's south-east end; none on the promenade in front of Piers 35-31, none in Pier 35's
+  // stretch of the median), and on the city side along Pier 39's stretch
   const palm = palmGeo(77);
   const palms = [];
   for (let s = 0; s < path.L; s += 17) {
     const q0 = path.at(s, 0);
-    const front = q0.x > -10 && q0.x < 330, west = q0.x > -330 && q0.x < -10;
-    if (!front && !west) continue;
-    const q = path.at(s + 8.5 + (r() - 0.5) * 3, front ? -EMB.half - 3.0 : EMB.half + 2.5);
+    const west = q0.x > -330 && q0.x < -60, median = q0.x >= 115;
+    if (!west && !median) continue;
+    const sp = s + 8.5 + (median ? 0 : (r() - 0.5) * 3);
+    if (median && Math.abs(sp - Math.round(sp / 32) * 32) < 2.5) continue;           // (clear of the catenary's span wires, every 32 m)
+    const pr = prof(sp), q = path.at(sp, median ? pr.c : pr.c + pr.hc + 2.5);
     if (west && r() < 0.5) continue;
-    // (never in front of a pavilion's arch: the frontage's composition, photo 06)
-    if (front && [[42.65, 170.7], [141.8, 238.5]].some(([px, pz]) => Math.hypot(q.x - px, q.z - pz) < 16)) continue;
     palms.push([q.x, yAt(q.x, q.z), q.z, 10 + r() * 5, r() * 6.283]);
   }
   const TMp = mats;
@@ -114,14 +125,14 @@ export function buildEmbarcadero(world, M, landAt, out) {
   world.mesh(merge(P.wires), mats.wire, { name: 'embarcadero:wires' });
 
   // ---- life: the streetcars and the traffic, as functions of t along the path
-  const life = buildTraffic(world, M, path, landAt, r);
+  const life = buildTraffic(world, M, path, landAt, r, prof);
   out.embarcadero = { L: +path.L.toFixed(0), lamps: lights.length, palms: palms.length, lights, life };
   return out.embarcadero;
 }
 
 // the F-line's historic streetcars (PCC cars: 14.2 m x 2.74 m, 3.2 m tall, in the liveries of the cities that ran
 // them) one each way, and the evening's traffic: cars at 9-13 m/s in two lanes each way with headlights and tail lights
-function buildTraffic(world, M, path, landAt, r) {
+function buildTraffic(world, M, path, landAt, r, prof) {
   const LIV = ['#e9a23b', '#2f6f4e', '#c43d2f', '#e6d9b8', '#3a5d8f'];
   const carBody = merge([box([0, 1.75, 0], [14.2, 2.4, 2.74]), box([0, 3.1, 0], [12.6, 0.4, 2.4]), box([-4.6, 0.3, 0], [2.4, 0.6, 2.2]), box([4.6, 0.3, 0], [2.4, 0.6, 2.2])]);
   const bodyMat = pierMat(world, {
@@ -153,17 +164,25 @@ function buildTraffic(world, M, path, landAt, r) {
   const tailGeo = merge([box([-2.27, 0.75, 0.65], [0.06, 0.14, 0.28]), box([-2.27, 0.75, -0.65], [0.06, 0.14, 0.28])]);
   const head = world.mesh(lightGeo, M.flat('headlights', '#fff6e0', { lamps: false, emit: 7.0, lines: 0 }), { count: N_CAR + N_TRAM, name: 'embarcadero:headlights', frustum: false });
   const tail = world.mesh(tailGeo, M.flat('tail lights', '#ff2a1a', { lamps: false, emit: 4.0, lines: 0 }), { count: N_CAR + N_TRAM, name: 'embarcadero:tail lights', frustum: false });
-  for (let i = 0; i < N_CAR; i++) {
-    const dir = i % 2 ? 1 : -1, lane = dir > 0 ? (r() < 0.5 ? 6.25 : 9.75) : (r() < 0.5 ? -6.25 : -9.75);
-    cars.push({ dir, lane, v: 9 + 4 * r(), s0: r() * path.L, seed: r() });
-  }
-  const trams = [{ dir: 1, lane: EMB.tracks, v: 6.5, s0: 0.2 * path.L }, { dir: -1, lane: -EMB.tracks, v: 6.5, s0: 0.7 * path.L }];
+  // the cars keep to their lane as the road changes its section: inner (a quarter of the way out) or outer (three
+  // quarters) of their side's lanes, from the median's kerb (or the middle) to the bike lane or the parking lane
+  const laneAt = (side, k, s) => { const pr = prof(s), h = side > 0 ? pr.hc - pr.exC : pr.hb - pr.exB; return pr.c + side * (pr.md + (h - pr.md) * k); };
+  // (one speed a lane and the cars spread evenly along it, so no car ever runs through another)
+  const LANES = [[1, 0.25], [1, 0.75], [-1, 0.25], [-1, 0.75]].map(([dir, k]) => ({ dir, k, v: 9 + 4 * r(), n: 0 }));
+  for (let i = 0; i < N_CAR; i++) LANES[i % 4].n++;
+  for (const ln of LANES) for (let j = 0; j < ln.n; j++)
+    cars.push({ dir: ln.dir, lane: s => laneAt(ln.dir > 0 ? 1 : -1, ln.k, s), v: ln.v, s0: (j + 0.6 * r()) * path.L / ln.n, seed: r() });
+  // the streetcars run where the tracks are (the median's stretch), there and back round the ends
+  let sA = null, sB = 0; for (let s = 0; s < path.L; s += 4) { const pr = prof(s); if (pr.tk) { if (sA === null) sA = s; sB = s; } }
+  if (sA === null) { sA = 0; sB = path.L; }
+  const trams = [{ dir: 1, lane: s => prof(s).c + prof(s).tk, v: 6.5, s0: 0.2 * (sB - sA) }, { dir: -1, lane: s => prof(s).c - prof(s).tk, v: 6.5, s0: 0.7 * (sB - sA) }];
   const TRAM_LIGHTS = new T.Matrix4().makeScale(3.13, 1.3, 1.5);
   const M4 = new T.Matrix4(), Q = new T.Quaternion(), V = new T.Vector3(), S1 = new T.Vector3(1, 1, 1), Y = new T.Vector3(0, 1, 0);
-  const place = (mesh, i, v, lane, dir, s0, t) => {
-    // around and around: run the path's length, a pure function of t (the length wraps out of sight past the box's ends)
-    let s = (s0 + dir * v * t) % path.L; if (s < 0) s += path.L;
-    const q = path.at(s, lane), y = landAt(q.x, q.z);
+  const place = (mesh, i, v, lane, dir, s0, t, a0 = 0, len = path.L) => {
+    // around and around: run the path's length (or the tracks'), a pure function of t (the length wraps out of sight past
+    // the box's ends)
+    let s = (s0 + dir * v * t) % len; if (s < 0) s += len; s += a0;
+    const q = path.at(s, lane(s)), y = landAt(q.x, q.z);
     const a = Math.atan2(-(q.t[1] * dir), q.t[0] * dir);
     Q.setFromAxisAngle(Y, a); V.set(q.x, y - 0.04, q.z); M4.compose(V, Q, S1);      // (4 cm into the road: the 8 m ground mesh interpolates the path's height)
     mesh.setMatrixAt(i, M4); return M4;
@@ -174,13 +193,13 @@ function buildTraffic(world, M, path, landAt, r) {
     trams.forEach((c, i) => {
       const cycle = 400 / c.v + 25, k = Math.floor(t / cycle), u = t - k * cycle;
       const tt = k * (400 / c.v) + Math.min(u, 400 / c.v);
-      place(tram, i, c.v, c.lane, c.dir, c.s0, tt);
+      place(tram, i, c.v, c.lane, c.dir, c.s0, tt, sA, sB - sA);
       // (the car's lamp pair stretched onto the streetcar's ends: 14.2 m long against the car's 4.5)
       const ML = M4.clone().multiply(TRAM_LIGHTS); head.setMatrixAt(N_CAR + i, ML); tail.setMatrixAt(N_CAR + i, ML);
     });
     for (const m of [carM, tram, head, tail]) m.instanceMatrix.needsUpdate = true;
   });
-  carM.userData.posAt = (t, i) => { const c = cars[i || 0]; let s = (c.s0 + c.dir * c.v * t) % path.L; if (s < 0) s += path.L; const q = path.at(s, c.lane); return [q.x, landAt(q.x, q.z) + 1, q.z]; };
+  carM.userData.posAt = (t, i) => { const c = cars[i || 0]; let s = (c.s0 + c.dir * c.v * t) % path.L; if (s < 0) s += path.L; const q = path.at(s, c.lane(s)); return [q.x, landAt(q.x, q.z) + 1, q.z]; };
   // the streetcars' gong as each pulls away from a stop (a dwell ends every 400 m): one event per departure, where it is
   const departures = (T1) => {
     const ev = [];
@@ -188,8 +207,8 @@ function buildTraffic(world, M, path, landAt, r) {
       const cycle = 400 / c.v + 25;
       for (let k = 0; k * cycle < T1; k++) {
         const t = k * cycle + 25 - 0.01, tt = (k + 1) * (400 / c.v);          // (the dwell's end; the position it reached)
-        let s = (c.s0 + c.dir * c.v * tt) % path.L; if (s < 0) s += path.L;
-        const q = path.at(s, c.lane); ev.push({ t: +t.toFixed(2), kind: 'streetcar_gong', pos: [+q.x.toFixed(1), +(landAt(q.x, q.z) + 3).toFixed(1), +q.z.toFixed(1)], level: 98, note: 'estimated: a PCC car\'s foot gong at 1 m' });
+        let s = (c.s0 + c.dir * c.v * tt) % (sB - sA); if (s < 0) s += sB - sA; s += sA;
+        const q = path.at(s, c.lane(s)); ev.push({ t: +t.toFixed(2), kind: 'streetcar_gong', pos: [+q.x.toFixed(1), +(landAt(q.x, q.z) + 3).toFixed(1), +q.z.toFixed(1)], level: 98, note: 'estimated: a PCC car\'s foot gong at 1 m' });
       }
     });
     return ev;

@@ -114,7 +114,8 @@ export function buildBoats(world, M, ctx, B, W, seat, F) {
       const L = 3.3, Wd = 1.8, Th = 0.55;
       const base = add3(rail(s0), nUp, 0.05 + Th / 2);
       const c = add3(base, up, L / 2);
-      const basis = new T.Matrix4().makeBasis(new T.Vector3(...up), new T.Vector3(...inn), new T.Vector3(0, 0, 1)).setPosition(...c);
+      const Xb = new T.Vector3(...up), Yb = new T.Vector3(...inn), Zb = Xb.clone().cross(Yb).normalize();      // (right-handed on both sides)
+      const basis = new T.Matrix4().makeBasis(Xb, Yb, Zb).setPosition(...c);
       // the raft: a box with rounded edges drawn by its frame, slatted ends, grab lines round it
       B.add(M.steelOld, boxM(L, Th, Wd, basis), 'rafts');
       B.add(M.steelOld, [-1, 1].map(e => boxM(0.08, Th + 0.04, Wd + 0.04, mul(basis, tr(e * (L / 2 - 0.04), 0, 0)))), 'rafts');

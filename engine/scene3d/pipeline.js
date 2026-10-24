@@ -710,7 +710,10 @@ export class Pipeline {
     // the near plane reaches back to every caster in the site (a tall tree outside the focus still shades it)
     const siteNear = (this.casters || this.bounds).clone(); let far = -Infinity;
     for (let i = 0; i < 8; i++) { const p = new T.Vector3(i & 1 ? siteNear.max.x : siteNear.min.x, i & 2 ? siteNear.max.y : siteNear.min.y, i & 4 ? siteNear.max.z : siteNear.min.z).applyMatrix4(inv); far = Math.max(far, p.z); }
-    cam.near = -far - 5; cam.far = -mn.z + 5;
+    // (never past the box's own nearest corner: with the camera far from the site and the site down-sun of the box, the
+    // site's nearest caster lay beyond the box's far plane, near > far, and every ground point under the box's sun
+    // footprint read as shadowed: liberty's dark wedge that followed the camera, 2026-10-24)
+    cam.near = Math.min(-far, -mx.z) - 5; cam.far = -mn.z + 5;
     cam.updateProjectionMatrix();
     matrixU.value.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
     paramsU.value.y = (tex * 1.2) / (cam.far - cam.near);
