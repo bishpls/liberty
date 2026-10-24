@@ -1,0 +1,23 @@
+{
+ "frame": "plan.js world (origin amidships 37.80873 N 122.40687 W, -z = 356.5 deg true), metres above the show's water (MLLW + 0.75)",
+ "layout": "row-major float16, rows along +z from -half, columns along +x from -half",
+ "source": "Terrain Tiles on AWS (Tilezen terrarium): USGS 3DEP/NED, SRTM and others; https://github.com/tilezen/joerd/blob/master/docs/attribution.md",
+ "near": {
+  "n": 1001,
+  "half": 6000,
+  "step": 12,
+  "zoom": 13,
+  "tiles": 25,
+  "min": -110.38989374197544,
+  "max": 278.1041564697411
+ },
+ "far": {
+  "n": 1001,
+  "half": 50000,
+  "step": 100,
+  "zoom": 10,
+  "tiles": 20,
+  "min": -996.9302960408156,
+  "max": 1131.3099204359835
+ }
+}

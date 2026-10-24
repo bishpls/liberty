@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>liberty</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #111; color: #ddd; font: 12px ui-monospace, Menlo, monospace; overflow: hidden; }
+  #out { display: block; }
+</style>
+</head>
+<body>
+<!-- liberty: the SS Jeremiah O'Brien at Pier 35, San Francisco, as a concert stage (projects/liberty/README.md).
+     Sandbox: node engine/render.mjs projects/liberty --serve
+     Boards:  node engine/render.mjs projects/liberty --loop=cams~19.5 --stills=0,1,2 -->
+<canvas id="out" width="16" height="16"></canvas>
+<script>
+  (() => {
+    const q = new URLSearchParams(location.search);
+    const [w, h] = (q.get('size') || '1920x1080').split('x').map(Number);
+    window.PROJECT = { fps: 24, plain: true, w, h, duration: 60 };
+  })();
+</script>
+<script type="importmap">{ "imports": { "scene3d/": "../../engine/scene3d/" } }</script>
+<script src="../../engine/core.js"></script>
+<script src="../../engine/studio.js"></script>
+<script src="../../engine/vendor/three-vrm.js"></script>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>

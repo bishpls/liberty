@@ -1,0 +1,23 @@
+Credits:
+  "Herring Gulls" by naturenotesuk (freesound.org/s/871298), CC BY 4.0
+  "Tykki, laukaus / Big gun, cannon, 76 mm, single shots, gunshots" by YleArkisto (freesound.org/s/332935), CC BY 4.0
+  Elevation data: Terrain Tiles on AWS (Tilezen/Mapzen), from USGS 3DEP/NED and NASA SRTM
+  Elevation: Terrain Tiles on AWS (Tilezen), from USGS 3DEP/NED and NASA SRTM
+  Map data © OpenStreetMap contributors (ODbL)
+Licences:
+  AMTR; gerardcatala; sinewave1kHz CC0-1.0
+  Atrius1 CC0-1.0
+  Canardo55 CC0-1.0
+  City and County of San Francisco (DataSF), PDDL 1.0; heights of towers since 2010 from Wikipedia's list of the city's tallest buildings (facts) PDDL-1.0
+  NASA Earth Observatory / NASA GIBS (public domain) public domain (NASA imagery)
+  RavenWolfProds CC0-1.0
+  USGS / Multi-Resolution Land Characteristics Consortium (public domain) public domain (US government work)
+  j1987 CC0-1.0
+  nigelcoop CC0-1.0
+  qubodup CC0-1.0
+  rombart CC0-1.0
+  vanoosbree CC0-1.0
+  vflefevre CC0-1.0
+Generated with:
+  elevenlabs (ElevenLabs Music (tools/music.py): the demo show's placeholder instrumental, 128 BPM, 4:15 (music/demo_plan.json); a placeholder until the film's own song)
+  elevenlabs (ElevenLabs sound effects (tools/sfx.py; prompts in tools/ledger.jsonl): the show, the guns, the waterfront and its life)
